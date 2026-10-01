@@ -16,6 +16,15 @@ dist-ssr/
 # 本地抓包 / 凭据，勿入库
 workers/api/scripts/tmp-cookie.txt
 
+# 外部上游仓库（由脚本 clone，不作为本仓库内容）
+#   splayer-frontend  -> scripts/deploy-pages.ps1
+#   ncm-source        -> workers/api/scripts/setup-api-enhanced.js
+splayer-frontend/
+workers/api/ncm-source/
+
+# 测试报告为生成产物
+workers/api/test-results/
+
 # 日志
 *.log
 npm-debug.log*

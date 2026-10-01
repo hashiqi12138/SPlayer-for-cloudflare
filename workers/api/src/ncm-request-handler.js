@@ -108,6 +108,21 @@ function generateRandomString(length) {
   return result;
 }
 
+// 对应 ncm-source/util/request.js 的 createHeaderCookie
+function createHeaderCookie(header) {
+  return Object.keys(header)
+    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(header[key])}`)
+    .join('; ');
+}
+
+// 对应 ncm-source/util/request.js 的 generateRequestId
+function generateRequestId() {
+  const rand = Math.floor(Math.random() * 1000)
+    .toString()
+    .padStart(4, '0');
+  return `${Date.now()}_${rand}`;
+}
+
 const WNMCID = (function () {
   const randomString = generateRandomString(6);
   return `${randomString}.${Date.now().toString()}.01.0`;
@@ -219,24 +234,42 @@ export async function createRequest(uri, data, options = {}) {
     
     switch (crypto) {
       case 'api':
-        // 明文模式
-        headers['User-Agent'] = options.ua || chooseUserAgent('api', 'pc');
-        url = (options.domain || API_DOMAIN) + uri;
-        bodyData = new URLSearchParams(data).toString();
+      case 'eapi': {
+        // api / eapi 都需要构造 header，并同时写入 Cookie 头与 data.header。
+        // 缺少 data.header 时，服务端对 song/enhance/player/url 系列会直接返回 code 404。
+        const header = {
+          osver: cookie.osver,
+          deviceId: cookie.deviceId,
+          os: cookie.os,
+          appver: cookie.appver,
+          versioncode: cookie.versioncode || '140',
+          mobilename: cookie.mobilename || '',
+          buildver: cookie.buildver || String(Date.now()).substr(0, 10),
+          resolution: cookie.resolution || '1920x1080',
+          __csrf: csrfToken,
+          channel: cookie.channel,
+          requestId: generateRequestId(),
+        };
+        if (cookie.MUSIC_U) header['MUSIC_U'] = cookie.MUSIC_U;
+        if (cookie.MUSIC_A) header['MUSIC_A'] = cookie.MUSIC_A;
+        if (crypto === 'eapi' && cookie.NMTID) header['NMTID'] = cookie.NMTID;
+
+        headers['Cookie'] = createHeaderCookie(header);
+        headers['User-Agent'] = options.ua || (cookie.os === 'osx'
+          ? 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+          : chooseUserAgent('api', 'iphone'));
+
+        if (crypto === 'eapi') {
+          data.header = header;
+          bodyData = new URLSearchParams(eapi(uri, data)).toString();
+          url = (options.domain || EAPI_DOMAIN) + '/eapi/' + uri.substr(5);
+        } else {
+          bodyData = new URLSearchParams(data).toString();
+          url = (options.domain || API_DOMAIN) + uri;
+        }
         headers['Content-Type'] = 'application/x-www-form-urlencoded;charset=utf-8';
         break;
-      
-      case 'eapi':
-        // Electron 端加密（最常用）
-        headers['User-Agent'] = options.ua || chooseUserAgent('api', 'pc');
-        headers['Referer'] = options.domain || DOMAIN;
-        
-        // eapi 加密
-        const eapiData = eapi(uri, data);
-        bodyData = new URLSearchParams(eapiData).toString();
-        url = (options.domain || EAPI_DOMAIN) + '/eapi/' + uri.substr(5);
-        headers['Content-Type'] = 'application/x-www-form-urlencoded;charset=utf-8';
-        break;
+      }
       
       case 'weapi':
         // Web 端加密（登录等用）

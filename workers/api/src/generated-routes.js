@@ -2,16 +2,22 @@
  * 自动生成 —— 请勿手动编辑
  *
  * 来源: api-enhanced/ncm-source/module
- * 生成时间: 2026-10-01T01:11:44.368Z
+ * 生成时间: 2026-10-01T03:17:32.652Z
  *
- * 已转译: 413 个模块
- * 已跳过: 28 个（依赖特殊，走 module-router.js 手动实现）
+ * 已转译: 429 个模块
+ * 已跳过: 12 个（依赖特殊，走 module-router.js 手动实现）
  */
 
 import createOption from './option.js';
 import { createRequest } from './ncm-request-handler.js';
 import CryptoJS from 'crypto-js';
 const __CryptoJS__ = CryptoJS;
+import __axios__ from './shims/axios.js';
+import __logger__ from './shims/logger.js';
+import __util__ from './shims/util.js';
+import __pkg__ from './shims/pkg.js';
+import * as __config__ from './shims/config.js';
+import __crypto__ from './shims/crypto.js';
 
 // 评论等接口的资源类型映射（对应 util/config.json）
 const resourceTypeMap = {
@@ -24,6 +30,11 @@ const resourceTypeMap = {
   '6': 'A_EV_2_',
   '7': 'A_DR_14_',
 };
+
+// 同目录模块互调（如 user_event_all 复用 user_account）：
+// 按路由名延迟取用。moduleFns 在下方定义，但调用发生在请求期，不受 TDZ 影响。
+const __moduleRef = (route) => (query, request, deps) =>
+  moduleFns[route](query, request, deps);
 
 export const moduleFns = {
 
@@ -95,6 +106,251 @@ export const moduleFns = {
     createOption(query, 'xeapi'),
   )
 },
+
+  // /ad/listening/rights/gain  <-- ad_listening_rights_gain.js
+  '/ad/listening/rights/gain': (() => {
+const adGet = __moduleRef("/ad/get")
+return async (query, request) => {
+  const time = Date.now()
+
+  // 从广告对象自动补齐请求字段。
+  // 实测 v9.5.61 真实 API 返回（/ad/get）确认的字段路径：
+  //   reqUid        = ad.extJson.contextInfo.req_id（真实响应中唯一存在）
+  //   contextInfo   = ad.extJson.contextInfo（完整对象序列化）
+  //   generalRightsInfo = ad.generalRightsInfo（字符串 JSON）
+  //   creativeType  = ad.creativeType
+  //   rightsGainMethod / extraRightsType / rightsGainDuration / rightsGainType /
+  //   extraRightsGainMethod / extraRightsGainDuration / nextRightsGainDuration /
+  //   rightsExtJson / source / rightsUpperLimit / qualified
+  //                 = ad.generalRightsInfo（字符串）解析后取值
+  //   （逆向类字段 adExtMap/adLogId/listeningRightHintInfo 真实响应中不存在，仅兜底）
+  //   sniffTime     = method==3 或 6 时 currentTimeMillis
+  let reqUid = query.reqUid || ''
+  let contextInfo = query.contextInfo
+  let creativeType = query.creativeType
+  let generalRightsInfo = query.generalRightsInfo
+
+  // 广告 hint 配置：仅当调用方未显式传参时用广告下发值兜底
+  const hint = {}
+
+  if (!reqUid || contextInfo === undefined || creativeType === undefined) {
+    try {
+      const adRes = await adGet(
+        { ...query, type_ids: query.type_ids || '["400002_0"]' },
+        request,
+      )
+      const ad = Object.values(adRes?.body?.ads || {})[0]
+      if (!ad) throw new Error('ads 为空（未登录或广告位无广告）')
+
+      // reqUid：真实 API 返回中 req_id 在 ad.extJson.contextInfo.req_id（实测 v9.5.61）
+      //   （逆向类字段 adExtMap/adLogId 在真实响应中不存在，仅作兜底）
+      if (!reqUid) {
+        const ext =
+          typeof ad?.extJson === 'string'
+            ? safeParse(ad.extJson, {})
+            : ad?.extJson || {}
+        const extMap =
+          typeof ad?.adExtMap === 'string'
+            ? safeParse(ad.adExtMap, {})
+            : ad?.adExtMap
+        reqUid =
+          ext?.contextInfo?.req_id ||
+          extMap?.req_id ||
+          ad?.adLogId?.requestId ||
+          ad?.reqId ||
+          adRes?.body?.extra?.reqId ||
+          ''
+      }
+      // contextInfo：真实 API 返回中在 ad.extJson.contextInfo（实测 v9.5.61）
+      if (contextInfo === undefined) {
+        const ext =
+          typeof ad?.extJson === 'string'
+            ? safeParse(ad.extJson, {})
+            : ad?.extJson || {}
+        const ci =
+          ext?.contextInfo || ad?.adLogId?.contextInfo || ad?.showContext
+        if (ci) {
+          contextInfo = typeof ci === 'string' ? ci : JSON.stringify(ci)
+        }
+      }
+      if (creativeType === undefined && ad?.creativeType !== undefined) {
+        creativeType = ad.creativeType
+      }
+      if (generalRightsInfo === undefined && ad?.generalRightsInfo) {
+        generalRightsInfo =
+          typeof ad.generalRightsInfo === 'string'
+            ? ad.generalRightsInfo
+            : JSON.stringify(ad.generalRightsInfo)
+      }
+      // 缓存广告下发的领取配置（后续用于兜底）
+      // 实测 v9.5.61：rightsGainMethod/rightsUpperLimit/qualified 等在
+      //   ad.generalRightsInfo（字符串）里，ad.listeningRightHintInfo 真实响应中不存在
+      const hintCfg =
+        typeof ad?.listeningRightHintInfo === 'string'
+          ? safeParse(ad.listeningRightHintInfo, {})
+          : ad?.listeningRightHintInfo || {}
+      const gri =
+        typeof ad?.generalRightsInfo === 'string'
+          ? safeParse(ad.generalRightsInfo, {})
+          : ad?.generalRightsInfo || {}
+      Object.assign(hint, hintCfg, gri)
+      console.log(`自动获取 reqUid: ${reqUid}`)
+    } catch (e) {
+      // 获取广告失败，后续请求会因缺少 reqUid 被拒绝
+    }
+  }
+
+  const rightsGainMethod = query.rightsGainMethod
+    ? parseInt(query.rightsGainMethod)
+    : hint.rightsGainMethod || 2
+
+  const rightsParam = {
+    // 必填: 广告请求 ID，自动从 ad_get 获取
+    reqUid,
+
+    // 曝光时间戳
+    exposureTime: query.exposureTime ? parseInt(query.exposureTime) : time,
+
+    // 当前登录用户 ID（原版客户端从 Profile.getUserId() 获取）
+    userId: query.uid ? parseInt(query.uid) : undefined,
+
+    // 点击时间戳
+    clickTime: query.clickTime ? parseInt(query.clickTime) : time,
+
+    // 额外权益类型（拉新分段权益等，决定发放云贝/时长/下载，来自广告配置）
+    extraRightsType: query.extraRightsType
+      ? parseInt(query.extraRightsType)
+      : hint.extraRightsType !== undefined
+        ? parseInt(hint.extraRightsType)
+        : undefined,
+
+    // 是否连续播放（默认 false）
+    playContinuously: query.playContinuously ? true : false,
+
+    // 来源标识（原版从 ad.listeningRightHintInfo.source 读取）
+    source: query.source
+      ? parseInt(query.source)
+      : hint.source !== undefined
+        ? parseInt(hint.source)
+        : undefined,
+
+    // 广告创意类型（激励视频场景=36，优先取 query / 广告对象）
+    creativeType: creativeType !== undefined ? parseInt(creativeType) : 36,
+
+    // 权益领取方式（1~6 枚举，见文件头注释）
+    rightsGainMethod,
+
+    // 权益扩展方式与时长
+    extraRightsGainMethod: query.extraRightsGainMethod
+      ? parseInt(query.extraRightsGainMethod)
+      : hint.extraRightsGainMethod !== undefined
+        ? parseInt(hint.extraRightsGainMethod)
+        : undefined,
+    extraRightsGainDuration: query.extraRightsGainDuration
+      ? parseInt(query.extraRightsGainDuration)
+      : hint.extraRightsGainDuration !== undefined
+        ? parseInt(hint.extraRightsGainDuration)
+        : undefined,
+    nextRightsGainDuration: query.nextRightsGainDuration
+      ? parseInt(query.nextRightsGainDuration)
+      : hint.nextRightsGainDuration !== undefined
+        ? parseInt(hint.nextRightsGainDuration)
+        : undefined,
+
+    // 权益类型（含 RIGHTS_GAIN_TYPE_CURRENT_DAY 等取值）
+    rightsGainType: query.rightsGainType
+      ? parseInt(query.rightsGainType)
+      : hint.rightsGainType !== undefined
+        ? parseInt(hint.rightsGainType)
+        : undefined,
+
+    // 权益时长
+    rightsGainDuration: query.rightsGainDuration
+      ? parseInt(query.rightsGainDuration)
+      : hint.rightsGainDuration !== undefined
+        ? parseInt(hint.rightsGainDuration)
+        : undefined,
+
+    // 领取步骤（UNGAIN/GAINING/GAIN_FINISHED 对应的值）
+    gainMethodStep: query.gainMethodStep
+      ? parseInt(query.gainMethodStep)
+      : undefined,
+
+    // 通用权益信息（ad.generalRightsInfo 序列化 JSON）
+    generalRightsInfo,
+
+    // 权益扩展信息
+    rightsExtJson: query.rightsExtJson || hint.rightsExtJson || undefined,
+
+    // 应用信息（下载类广告）
+    appInfo: query.appInfo ? JSON.parse(query.appInfo) : undefined,
+
+    // 广告上下文（ad.adLogId.contextInfo，客户端真实来源）
+    contextInfo,
+
+    // 应用是否已安装（下载类广告）
+    installed: query.installed ? parseInt(query.installed) : undefined,
+
+    // 嗅探时间：逆向确认（classes5.dex AdDSLUtils.requestRightGain）：
+    //   rightsGainMethod==3(曝光+下载) 或 6(LAXIN) 时传 currentTimeMillis
+    sniffTime:
+      rightsGainMethod === 3 || rightsGainMethod === 6
+        ? query.sniffTime
+          ? parseInt(query.sniffTime)
+          : time
+        : undefined,
+  }
+
+  // 清理 undefined 字段
+  Object.keys(rightsParam).forEach((key) => {
+    if (rightsParam[key] === undefined) delete rightsParam[key]
+  })
+
+  // 将参数序列化为 reqParam 字符串 (与原生源码一致)
+  const data = {
+    reqParam: JSON.stringify(rightsParam),
+  }
+
+  const res = await request(
+    `/api/ad/listening/rights/gain`,
+    data,
+    createOption(query, 'xeapi', 'v3'),
+  )
+
+  return {
+    status: 200,
+    body: {
+      code: 200,
+      data: res.body,
+    },
+  }
+};
+})(),
+
+  // /aidj/content/rcmd  <-- aidj_content_rcmd.js
+  '/aidj/content/rcmd': (() => {
+const logger = __logger__
+return (query, request) => {
+  var extInfo = {}
+  if (query.latitude != undefined) {
+    extInfo.lbsInfoList = [
+      {
+        lat: query.latitude,
+        lon: query.longitude,
+        time: Date.parse(new Date()) / 1000,
+      },
+    ]
+  }
+  extInfo.noAidjToAidj = false
+  extInfo.lastRequestTimestamp = new Date().getTime()
+  extInfo.listenedTs = false
+  const data = {
+    extInfo: JSON.stringify(extInfo),
+  }
+  // logger.info(data)
+  return request(`/api/aidj/content/rcmd/info`, data, createOption(query))
+};
+})(),
 
   // /album  <-- album.js
   '/album': (query, request) => {
@@ -217,6 +473,30 @@ export const moduleFns = {
   }
   return request(`/api/album/sublist`, data, createOption(query, 'weapi'))
 },
+
+  // /api  <-- api.js
+  '/api': (() => {
+const { cookieToJson } = __util__
+return (query, request) => {
+  const uri = query.uri
+  let data = {}
+  try {
+    data =
+      typeof query.data === 'string' ? JSON.parse(query.data) : query.data || {}
+    if (typeof data.cookie === 'string') {
+      data.cookie = cookieToJson(data.cookie)
+      query.cookie = data.cookie
+    }
+  } catch (e) {
+    data = {}
+  }
+
+  const crypto = query.crypto || ''
+
+  const res = request(uri, data, createOption(query, crypto))
+  return res
+};
+})(),
 
   // /artist/album  <-- artist_album.js
   '/artist/album': (query, request) => {
@@ -416,6 +696,27 @@ export const moduleFns = {
   '/artists': (query, request) => {
   return request(`/api/v1/artist/${query.id}`, {}, createOption(query, 'weapi'))
 },
+
+  // /audio/match  <-- audio_match.js
+  '/audio/match': (() => {
+const { default: axios } = __axios__
+return async (query, request) => {
+  const res = await axios({
+    method: 'get',
+    url: `https://interface.music.163.com/api/music/audio/match?sessionId=0123456789abcdef&algorithmCode=shazam_v2&duration=${
+      query.duration
+    }&rawdata=${encodeURIComponent(query.audioFP)}&times=1&decrypt=1`,
+    data: null,
+  })
+  return {
+    status: 200,
+    body: {
+      code: 200,
+      data: res.data.data,
+    },
+  }
+};
+})(),
 
   // /banner  <-- banner.js
   '/banner': (query, request) => {
@@ -754,6 +1055,119 @@ export const moduleFns = {
   }
 },
 
+  // /cloud/upload/token  <-- cloud_upload_token.js
+  '/cloud/upload/token': (() => {
+const { default: axios } = __axios__
+return async (query, request) => {
+  const { md5, fileSize, filename, bitrate = 999000 } = query
+
+  if (!md5 || !fileSize || !filename) {
+    return Promise.reject({
+      status: 400,
+      body: {
+        code: 400,
+        msg: '缺少必要参数: md5, fileSize, filename',
+      },
+    })
+  }
+
+  const ext = filename.includes('.') ? filename.split('.').pop() : 'mp3'
+
+  const checkRes = await request(
+    `/api/cloud/upload/check`,
+    {
+      bitrate: String(bitrate),
+      ext: '',
+      length: fileSize,
+      md5: md5,
+      songId: '0',
+      version: 1,
+    },
+    createOption(query),
+  )
+
+  const bucket = 'jd-musicrep-privatecloud-audio-public'
+  const tokenRes = await request(
+    `/api/nos/token/alloc`,
+    {
+      bucket: bucket,
+      ext: ext,
+      filename: filename
+        .replace(/\.[^.]+$/, '')
+        .replace(/\s/g, '')
+        .replace(/\./g, '_'),
+      local: false,
+      nos_product: 3,
+      type: 'audio',
+      md5: md5,
+    },
+    createOption(query, 'weapi'),
+  )
+
+  if (!tokenRes.body.result || !tokenRes.body.result.objectKey) {
+    return Promise.reject({
+      status: 500,
+      body: {
+        code: 500,
+        msg: '获取上传token失败',
+        detail: tokenRes.body,
+      },
+    })
+  }
+
+  let lbs
+  try {
+    lbs = (
+      await axios({
+        method: 'get',
+        url: `https://wanproxy.127.net/lbs?version=1.0&bucketname=${bucket}`,
+        timeout: 10000,
+      })
+    ).data
+  } catch (error) {
+    return Promise.reject({
+      status: 500,
+      body: {
+        code: 500,
+        msg: '获取上传服务器地址失败',
+        detail: error.message,
+      },
+    })
+  }
+
+  if (!lbs || !lbs.upload || !lbs.upload[0]) {
+    return Promise.reject({
+      status: 500,
+      body: {
+        code: 500,
+        msg: '获取上传服务器地址无效',
+        detail: lbs,
+      },
+    })
+  }
+
+  return {
+    status: 200,
+    body: {
+      code: 200,
+      data: {
+        needUpload: checkRes.body.needUpload,
+        songId: checkRes.body.songId,
+        uploadToken: tokenRes.body.result.token,
+        objectKey: tokenRes.body.result.objectKey,
+        resourceId: tokenRes.body.result.resourceId,
+        uploadUrl: `${lbs.upload[0]}/${bucket}/${tokenRes.body.result.objectKey.replace(/\//g, '%2F')}?offset=0&complete=true&version=1.0`,
+        bucket: bucket,
+        md5: md5,
+        fileSize: fileSize,
+        filename: filename,
+      },
+    },
+    cookie: checkRes.cookie,
+  }
+};
+})(),
+
   // /cloudsearch  <-- cloudsearch.js
   '/cloudsearch': (query, request) => {
   const data = {
@@ -767,7 +1181,9 @@ export const moduleFns = {
 },
 
   // /comment  <-- comment.js
-  '/comment': (query, request) => {
+  '/comment': (() => {
+const { resourceTypeMap } = __config__
+return (query, request) => {
   query.t = {
     1: 'add',
     0: 'delete',
@@ -792,10 +1208,13 @@ export const moduleFns = {
     data,
     createOption(query, 'eapi', 'v2'),
   )
-},
+};
+})(),
 
   // /comment/add  <-- comment_add.js
-  '/comment/add': (query, request) => {
+  '/comment/add': (() => {
+const { resourceTypeMap } = __config__
+return (query, request) => {
   const data = {
     threadId: resourceTypeMap[query.type] + query.id,
     content: query.content,
@@ -808,7 +1227,8 @@ export const moduleFns = {
     data,
     createOption(query, 'xeapi', 'v3'),
   )
-},
+};
+})(),
 
   // /comment/album  <-- comment_album.js
   '/comment/album': (query, request) => {
@@ -826,7 +1246,9 @@ export const moduleFns = {
 },
 
   // /comment/delete  <-- comment_delete.js
-  '/comment/delete': (query, request) => {
+  '/comment/delete': (() => {
+const { resourceTypeMap } = __config__
+return (query, request) => {
   const data = {
     commentId: query.cid,
     threadId: resourceTypeMap[query.type] + query.id,
@@ -836,7 +1258,8 @@ export const moduleFns = {
     data,
     createOption(query, 'xeapi'),
   )
-},
+};
+})(),
 
   // /comment/dj  <-- comment_dj.js
   '/comment/dj': (query, request) => {
@@ -868,7 +1291,9 @@ export const moduleFns = {
 },
 
   // /comment/floor  <-- comment_floor.js
-  '/comment/floor': (query, request) => {
+  '/comment/floor': (() => {
+const { resourceTypeMap } = __config__
+return (query, request) => {
   query.type = resourceTypeMap[query.type]
   const data = {
     parentCommentId: query.parentCommentId,
@@ -881,10 +1306,13 @@ export const moduleFns = {
     data,
     createOption(query, 'weapi'),
   )
-},
+};
+})(),
 
   // /comment/hot  <-- comment_hot.js
-  '/comment/hot': (query, request) => {
+  '/comment/hot': (() => {
+const { resourceTypeMap } = __config__
+return (query, request) => {
   query.type = resourceTypeMap[query.type]
   const data = {
     rid: query.id,
@@ -897,10 +1325,13 @@ export const moduleFns = {
     data,
     createOption(query, 'weapi'),
   )
-},
+};
+})(),
 
   // /comment/hug/list  <-- comment_hug_list.js
-  '/comment/hug/list': (query, request) => {
+  '/comment/hug/list': (() => {
+const { resourceTypeMap } = __config__
+return (query, request) => {
   query.type = resourceTypeMap[query.type || 0]
   const threadId = query.type + query.sid
   const data = {
@@ -917,10 +1348,13 @@ export const moduleFns = {
     data,
     createOption(query),
   )
-},
+};
+})(),
 
   // /comment/info/list  <-- comment_info_list.js
-  '/comment/info/list': (query, request) => {
+  '/comment/info/list': (() => {
+const { resourceTypeMap } = __config__
+return (query, request) => {
   const ids = String(query.ids || query.id || '')
     .split(',')
     .map((id) => id.trim())
@@ -934,10 +1368,13 @@ export const moduleFns = {
     },
     createOption(query, 'weapi'),
   )
-},
+};
+})(),
 
   // /comment/like  <-- comment_like.js
-  '/comment/like': (query, request) => {
+  '/comment/like': (() => {
+const { resourceTypeMap } = __config__
+return (query, request) => {
   query.t = query.t == 1 ? 'like' : 'unlike'
   query.type = resourceTypeMap[query.type]
   const data = {
@@ -952,7 +1389,8 @@ export const moduleFns = {
     data,
     createOption(query, 'weapi'),
   )
-},
+};
+})(),
 
   // /comment/music  <-- comment_music.js
   '/comment/music': (query, request) => {
@@ -985,7 +1423,9 @@ export const moduleFns = {
 },
 
   // /comment/new  <-- comment_new.js
-  '/comment/new': (query, request) => {
+  '/comment/new': (() => {
+const { resourceTypeMap } = __config__
+return (query, request) => {
   query.type = resourceTypeMap[query.type]
   const threadId = query.type + query.id
   const pageSize = query.pageSize || 20
@@ -1017,7 +1457,8 @@ export const moduleFns = {
     sortType: sortType, //99:按推荐排序,2:按热度排序,3:按时间排序
   }
   return request(`/api/v2/resource/comments`, data, createOption(query))
-},
+};
+})(),
 
   // /comment/playlist  <-- comment_playlist.js
   '/comment/playlist': (query, request) => {
@@ -1035,7 +1476,9 @@ export const moduleFns = {
 },
 
   // /comment/reply  <-- comment_reply.js
-  '/comment/reply': (query, request) => {
+  '/comment/reply': (() => {
+const { resourceTypeMap } = __config__
+return (query, request) => {
   const data = {
     threadId: resourceTypeMap[query.type] + query.id,
     commentId: query.cid,
@@ -1047,7 +1490,8 @@ export const moduleFns = {
     data,
     createOption(query, 'xeapi', 'v3'),
   )
-},
+};
+})(),
 
   // /comment/report  <-- comment_report.js
   '/comment/report': (query, request) => {
@@ -1093,6 +1537,98 @@ export const moduleFns = {
   }
   return request(`/api/point/dailyTask`, data, createOption(query))
 },
+
+  // /decrypt  <-- decrypt.js
+  '/decrypt': (() => {
+const CryptoJS = __CryptoJS__
+return async (query, request) => {
+  const crypto = query.crypto || 'eapi'
+  const data = query.data || query.hexString || ''
+  const isReq = query.isReq !== 'false'
+
+  if (!data) {
+    return {
+      status: 400,
+      body: { code: 400, message: 'data is required' },
+    }
+  }
+
+  try {
+    let result
+    switch (crypto) {
+      case 'eapi': {
+        const pureHex = data.replace(/\s/g, '')
+        result = isReq ? eapiReqDecrypt(pureHex) : eapiResDecrypt(pureHex)
+        break
+      }
+
+      case 'weapi': {
+        if (isReq) {
+          return {
+            status: 400,
+            body: {
+              code: 400,
+              message:
+                'weapi 请求解密需要 RSA 私钥，暂不支持；仅支持 weapi 返回数据解密（e_r=true 时与 eapi 相同）',
+            },
+          }
+        }
+        const pureHex = data.replace(/\s/g, '')
+        result = eapiResDecrypt(pureHex)
+        break
+      }
+
+      case 'linuxapi': {
+        if (isReq) {
+          const pureHex = data.replace(/\s/g, '')
+          const decrypted = aesDecrypt(pureHex, 'ecb', linuxapiKey, '', 'hex')
+          result = JSON.parse(decrypted.toString(CryptoJS.enc.Utf8))
+        } else {
+          result = typeof data === 'string' ? JSON.parse(data) : data
+        }
+        break
+      }
+
+      case 'xeapi': {
+        if (isReq) {
+          return {
+            status: 400,
+            body: {
+              code: 400,
+              message:
+                'xeapi 请求解密涉及 X25519 ECDH 密钥交换，流程复杂，暂不支持；仅支持 xeapi 返回数据解密',
+            },
+          }
+        }
+        const buf = Buffer.from(data, 'base64')
+        result = xeapiResDecrypt(buf)
+        break
+      }
+
+      case 'api': {
+        result = typeof data === 'string' ? JSON.parse(data) : data
+        break
+      }
+
+      default:
+        return {
+          status: 400,
+          body: { code: 400, message: `未知加密方式: ${crypto}` },
+        }
+    }
+
+    return {
+      status: 200,
+      body: { code: 200, data: result },
+    }
+  } catch (error) {
+    return {
+      status: 400,
+      body: { code: 400, message: `解密失败: ${error.message}` },
+    }
+  }
+};
+})(),
 
   // /device/kickoff  <-- device_kickoff.js
   '/device/kickoff': (query, request) => {
@@ -1334,6 +1870,20 @@ export const moduleFns = {
   )
 },
 
+  // /dj/program  <-- dj_program.js
+  '/dj/program': (() => {
+const { toBoolean } = __util__
+return (query, request) => {
+  const data = {
+    radioId: query.rid,
+    limit: query.limit || 30,
+    offset: query.offset || 0,
+    asc: toBoolean(query.asc),
+  }
+  return request(`/api/dj/program/byradio`, data, createOption(query, 'weapi'))
+};
+})(),
+
   // /dj/program/detail  <-- dj_program_detail.js
   '/dj/program/detail': (query, request) => {
   const data = {
@@ -1474,6 +2024,35 @@ export const moduleFns = {
   }
   return request(`/api/dj/toplist/popular`, data, createOption(query, 'weapi'))
 },
+
+  // /eapi/decrypt  <-- eapi_decrypt.js
+  '/eapi/decrypt': (() => {
+const { eapiResDecrypt, eapiReqDecrypt } = __crypto__
+return async (query, request) => {
+  const hexString = query.hexString
+  const isReq = query.isReq != 'false'
+  if (!hexString) {
+    return {
+      status: 400,
+      body: {
+        code: 400,
+        message: 'hex string is required',
+      },
+    }
+  }
+  // 去除空格
+  let pureHexString = hexString.replace(/\s/g, '')
+  return {
+    status: 200,
+    body: {
+      code: 200,
+      data: isReq
+        ? eapiReqDecrypt(pureHexString)
+        : eapiResDecrypt(pureHexString),
+    },
+  }
+};
+})(),
 
   // /event  <-- event.js
   '/event': (query, request) => {
@@ -1647,7 +2226,9 @@ export const moduleFns = {
 },
 
   // /hug/comment  <-- hug_comment.js
-  '/hug/comment': (query, request) => {
+  '/hug/comment': (() => {
+const { resourceTypeMap } = __config__
+return (query, request) => {
   query.type = resourceTypeMap[query.type || 0]
   const threadId = query.type + query.sid
   const data = {
@@ -1660,7 +2241,27 @@ export const moduleFns = {
     data,
     createOption(query),
   )
-},
+};
+})(),
+
+  // /inner/version  <-- inner_version.js
+  '/inner/version': (() => {
+const pkg = __pkg__
+return (query, request) => {
+  return new Promise((resolve) => {
+    return resolve({
+      code: 200,
+      status: 200,
+      body: {
+        code: 200,
+        data: {
+          version: pkg.version,
+        },
+      },
+    })
+  })
+};
+})(),
 
   // /lbs/city/code  <-- lbs_city_code.js
   '/lbs/city/code': (query, request) => {
@@ -1880,7 +2481,9 @@ export const moduleFns = {
 },
 
   // /login  <-- login.js
-  '/login': async (query, request) => {
+  '/login': (() => {
+const CryptoJS = __CryptoJS__
+return async (query, request) => {
   const data = {
     type: '0',
     https: 'true',
@@ -1915,10 +2518,13 @@ export const moduleFns = {
     }
   }
   return result
-},
+};
+})(),
 
   // /login/cellphone  <-- login_cellphone.js
-  '/login/cellphone': async (query, request) => {
+  '/login/cellphone': (() => {
+const CryptoJS = __CryptoJS__
+return async (query, request) => {
   const data = {
     type: '1',
     https: 'true',
@@ -1953,7 +2559,8 @@ export const moduleFns = {
     }
   }
   return result
-},
+};
+})(),
 
   // /login/qr/check  <-- login_qr_check.js
   '/login/qr/check': async (query, request) => {
@@ -2687,7 +3294,9 @@ export const moduleFns = {
 },
 
   // /playlist/subscribe  <-- playlist_subscribe.js
-  '/playlist/subscribe': (query, request) => {
+  '/playlist/subscribe': (() => {
+const { APP_CONF } = __config__
+return (query, request) => {
   const path = query.t == 1 ? 'subscribe' : 'unsubscribe'
   const data = {
     id: query.id,
@@ -2697,7 +3306,8 @@ export const moduleFns = {
   }
   query.checkToken = 'v2' // 强制开启checkToken
   return request(`/api/playlist/${path}`, data, createOption(query, 'eapi'))
-},
+};
+})(),
 
   // /playlist/subscribers  <-- playlist_subscribers.js
   '/playlist/subscribers': (query, request) => {
@@ -2717,6 +3327,25 @@ export const moduleFns = {
   }
   return request(`/api/playlist/tags/update`, data, createOption(query))
 },
+
+  // /playlist/track/add  <-- playlist_track_add.js
+  '/playlist/track/add': (() => {
+const logger = __logger__
+return async (query, request) => {
+  query.ids = query.ids || ''
+  const data = {
+    id: query.pid,
+    tracks: JSON.stringify(
+      query.ids.split(',').map((item) => {
+        return { type: 3, id: item }
+      }),
+    ),
+  }
+  logger.info(data)
+
+  return request(`/api/playlist/track/add`, data, createOption(query, 'weapi'))
+};
+})(),
 
   // /playlist/track/all  <-- playlist_track_all.js
   '/playlist/track/all': (query, request) => {
@@ -3011,7 +3640,9 @@ export const moduleFns = {
 },
 
   // /register/cellphone  <-- register_cellphone.js
-  '/register/cellphone': (query, request) => {
+  '/register/cellphone': (() => {
+const CryptoJS = __CryptoJS__
+return (query, request) => {
   const data = {
     captcha: query.captcha,
     phone: query.phone,
@@ -3021,7 +3652,104 @@ export const moduleFns = {
     force: 'false',
   }
   return request(`/api/w/register/cellphone`, data, createOption(query))
-},
+};
+})(),
+
+  // /register/checktoken/v3  <-- register_checktoken_v3.js
+  '/register/checktoken/v3': (() => {
+const { default: axios } = __axios__
+const { APP_CONF } = __config__
+return async () => {
+  let token = ''
+  try {
+    token = await fetch()
+  } catch (e) {
+    // token 获取失败时返回空，由调用方决定是否重试
+  }
+  return {
+    status: 200,
+    body: { code: 200, token, registered: !!token },
+  }
+}
+
+// 给 request.js 读取用：每次调用实时获取新 token，不缓存
+module.exports.getToken = async () => {
+  try {
+    return await fetch()
+  } catch (e) {
+    return ''
+  }
+};
+})(),
+
+  // /register/xeapikey  <-- register_xeapikey.js
+  '/register/xeapikey': (() => {
+const { default: axios } = __axios__
+const encrypt = __crypto__
+const { APP_CONF } = __config__
+return async (query, request) => {
+  const nonce = generateNonce()
+  const timestamp = String(Date.now())
+  const deviceId = query.deviceId || global.deviceId || ''
+  const currentKeyVersion = query.currentKeyVersion || ''
+
+  const data = {
+    appVersion: '9.5.61',
+    currentKeyVersion,
+    deviceId,
+    nonce,
+    os: 'android',
+    requestType: 'active',
+    signature: encrypt.xeapiSign(timestamp, nonce),
+    t1: '',
+    t2: '',
+    timestamp,
+    uid: '',
+  }
+
+  const res = await axios({
+    method: 'POST',
+    url: APP_CONF.apiDomain + '/api/gorilla/anti/crawler/security/key/get',
+    headers: {
+      'User-Agent':
+        'NeteaseMusic/9.5.61.260802021928(9005061);Dalvik/2.1.0 (Linux; U; Android 12; HBN-AL00 Build/cd737a2.0)',
+      Cookie: deviceId ? `deviceId=${encodeURIComponent(deviceId)}` : '',
+    },
+    data: new URLSearchParams(data).toString(),
+    proxy: false,
+  })
+
+  if (
+    !res.data ||
+    res.data.code !== 200 ||
+    !res.data.data ||
+    !res.data.data.encryptedData
+  ) {
+    throw new Error('xeapi public key request failed')
+  }
+  if (
+    !res.data.data.signature ||
+    encrypt.xeapiSign(res.data.data.timestamp, nonce) !==
+      res.data.data.signature
+  ) {
+    throw new Error('xeapi public key response signature mismatch')
+  }
+
+  const publicKey = encrypt.xeapiDecryptPublicKey(res.data.data.encryptedData)
+  if (!publicKey.sk) {
+    throw new Error('xeapi public key response missing sk')
+  }
+
+  return {
+    status: 200,
+    body: {
+      ...publicKey,
+      deviceId,
+    },
+    cookie: [],
+  }
+};
+})(),
 
   // /related/allvideo  <-- related_allvideo.js
   '/related/allvideo': (query, request) => {
@@ -3035,6 +3763,40 @@ export const moduleFns = {
     createOption(query, 'weapi'),
   )
 },
+
+  // /related/playlist  <-- related_playlist.js
+  '/related/playlist': (() => {
+const { default: axios } = __axios__
+return async (query, request) => {
+  const res = await axios({
+    method: 'GET',
+    url: `https://music.163.com/playlist?id=${query.id}`,
+  })
+  try {
+    const pattern =
+      /<div class="cver u-cover u-cover-3">[\s\S]*?<img src="([^"]+)">[\s\S]*?<a class="sname f-fs1 s-fc0" href="([^"]+)"[^>]*>([^<]+?)<\/a>[\s\S]*?<a class="nm nm f-thide s-fc3" href="([^"]+)"[^>]*>([^<]+?)<\/a>/g
+    let result,
+      playlists = []
+    while ((result = pattern.exec(res.data)) != null) {
+      playlists.push({
+        creator: {
+          userId: result[4].slice('/user/home?id='.length),
+          nickname: result[5],
+        },
+        coverImgUrl: result[1].slice(0, -'?param=50y50'.length),
+        name: result[3],
+        id: result[2].slice('/playlist?id='.length),
+      })
+    }
+    res.body = { code: 200, playlists: playlists }
+    return res
+  } catch (err) {
+    res.status = 500
+    res.body = { code: 500, msg: err.stack }
+    return Promise.reject(res)
+  }
+};
+})(),
 
   // /relay/play/state/submit  <-- relay_play_state_submit.js
   '/relay/play/state/submit': (query, request) => {
@@ -3219,7 +3981,9 @@ export const moduleFns = {
 },
 
   // /resource/like  <-- resource_like.js
-  '/resource/like': (query, request) => {
+  '/resource/like': (() => {
+const { resourceTypeMap } = __config__
+return (query, request) => {
   query.t = query.t == 1 ? 'like' : 'unlike'
   query.type = resourceTypeMap[query.type]
   const data = {
@@ -3229,7 +3993,8 @@ export const moduleFns = {
     data.threadId = query.threadId
   }
   return request(`/api/resource/${query.t}`, data, createOption(query, 'weapi'))
-},
+};
+})(),
 
   // /sati/resource/list  <-- sati_resource_list.js
   '/sati/resource/list': (query, request) => {
@@ -3287,7 +4052,9 @@ export const moduleFns = {
 },
 
   // /scrobble  <-- scrobble.js
-  '/scrobble': async (query, request) => {
+  '/scrobble': (() => {
+const { APP_CONF } = __config__
+return async (query, request) => {
   // 注入 os=osx 的 cookie
   let cookie = query.cookie || ''
   if (typeof cookie === 'object') {
@@ -3359,7 +4126,8 @@ export const moduleFns = {
       },
     },
   }
-},
+};
+})(),
 
   // /search  <-- search.js
   '/search': (query, request) => {
@@ -3648,6 +4416,9 @@ export const moduleFns = {
 
   // /song/detail  <-- song_detail.js
   '/song/detail': (query, request) => {
+  if (!query.ids) {
+    return { status: 400, body: { code: 400, msg: '缺少 ids 参数' } }
+  }
   // 歌曲数量不要超过1000
   query.ids = query.ids.split(/\s*,\s*/)
   const data = {
@@ -3674,6 +4445,28 @@ export const moduleFns = {
   }
   return request(`/api/song/enhance/download/url`, data, createOption(query))
 },
+
+  // /song/download/url/v1  <-- song_download_url_v1.js
+  '/song/download/url/v1': (() => {
+const { cookieToJson } = __util__
+return (query, request) => {
+  const data = {
+    id: query.id,
+    immerseType: 'c51',
+    level: query.level,
+  }
+  const options = createOption(query)
+  if (query.level === 'vivid') {
+    const cookie = options.cookie
+    options.cookie = {
+      ...(typeof cookie === 'string' ? cookieToJson(cookie) : cookie),
+      os: 'android',
+      appver: '9.5.61',
+    }
+  }
+  return request(`/api/song/enhance/download/url/v1`, data, options)
+};
+})(),
 
   // /song/dynamic/cover  <-- song_dynamic_cover.js
   '/song/dynamic/cover': (query, request) => {
@@ -3846,6 +4639,71 @@ export const moduleFns = {
   '/song/url/ncmget': async (query, request) => {
   return { status: 200, body: { code: 200, data: [] } }
 },
+
+  // /song/url/v1/302  <-- song_url_v1_302.js
+  '/song/url/v1/302': (() => {
+const { cookieToJson } = __util__
+return async (query, request) => {
+  const data = {
+    id: query.id,
+    immerseType: 'c51',
+    level: query.level,
+  }
+  const options = createOption(query)
+  if (query.level === 'vivid') {
+    const cookie = options.cookie
+    options.cookie = {
+      ...(typeof cookie === 'string' ? cookieToJson(cookie) : cookie),
+      os: 'android',
+      appver: '9.5.61',
+    }
+  }
+  const response = await request(
+    `/api/song/enhance/download/url/v1`,
+    data,
+    options,
+  )
+  let url = response?.body?.data?.url || response?.body?.data?.[0]?.url
+
+  if (!url) {
+    const fallbackData = {
+      ids: `[${query.id}]`,
+      level: query.level,
+      encodeType: 'flac',
+    }
+    if (query.level === 'sky') {
+      fallbackData.immerseType = 'c51'
+    }
+    if (query.level === 'vivid') {
+      fallbackData.encodeType = 'mp3'
+    }
+    const fallback = await request(
+      `/api/song/enhance/player/url/v1`,
+      fallbackData,
+      options,
+    )
+    url = fallback?.body?.data?.[0]?.url
+
+    if (!url) {
+      return fallback
+    }
+
+    return {
+      status: 302,
+      body: '',
+      cookie: fallback.cookie || [],
+      redirectUrl: url,
+    }
+  }
+
+  return {
+    status: 302,
+    body: '',
+    cookie: response.cookie || [],
+    redirectUrl: url,
+  }
+};
+})(),
 
   // /song/wiki/info  <-- song_wiki_info.js
   '/song/wiki/info': (query, request) => {
@@ -4278,7 +5136,9 @@ export const moduleFns = {
 },
 
   // /user/bindingcellphone  <-- user_bindingcellphone.js
-  '/user/bindingcellphone': (query, request) => {
+  '/user/bindingcellphone': (() => {
+const CryptoJS = __CryptoJS__
+return (query, request) => {
   const data = {
     phone: query.phone,
     countrycode: query.countrycode || '86',
@@ -4290,7 +5150,8 @@ export const moduleFns = {
     data,
     createOption(query, 'weapi'),
   )
-},
+};
+})(),
 
   // /user/cloud  <-- user_cloud.js
   '/user/cloud': (query, request) => {
@@ -4391,6 +5252,130 @@ export const moduleFns = {
   }
   return request(`/api/event/get/${query.uid}`, data, createOption(query))
 },
+
+  // /user/event/all  <-- user_event_all.js
+  '/user/event/all': (() => {
+const userAccount = __moduleRef("/user/account")
+const userEvent = __moduleRef("/user/event")
+return async (query, request) => {
+  const accountResult = await userAccount(query, request)
+  const uid =
+    accountResult.body?.account?.id || accountResult.body?.profile?.userId
+
+  if (!uid) {
+    if (
+      accountResult.status !== 200 ||
+      (accountResult.body?.code && accountResult.body.code !== 200)
+    ) {
+      return accountResult
+    }
+
+    return {
+      status: 401,
+      body: {
+        code: 401,
+        message: 'A valid login cookie is required',
+      },
+      cookie: accountResult.cookie || [],
+    }
+  }
+
+  const cookies = [...(accountResult.cookie || [])]
+  const events = []
+  const eventIds = new Set()
+  const cursors = new Set()
+  let lasttime = -1
+  let more = true
+  let pageCount = 0
+  let size = null
+
+  while (more) {
+    pageCount += 1
+
+    const pageResult = await userEvent(
+      {
+        ...query,
+        uid,
+        lasttime,
+        limit: PAGE_SIZE,
+      },
+      request,
+    )
+
+    cookies.push(...(pageResult.cookie || []))
+
+    if (pageResult.status !== 200 || pageResult.body?.code !== 200) {
+      return {
+        ...pageResult,
+        cookie: cookies,
+      }
+    }
+
+    if (pageCount === 1) {
+      const reportedSize = pageResult.body.size
+      const numericSize = Number(reportedSize)
+      size =
+        reportedSize != null && Number.isFinite(numericSize)
+          ? numericSize
+          : null
+    }
+
+    for (const event of pageResult.body.events || []) {
+      if (event?.id == null) {
+        events.push(event)
+        continue
+      }
+
+      const eventId = String(event.id)
+      if (!eventIds.has(eventId)) {
+        eventIds.add(eventId)
+        events.push(event)
+      }
+    }
+
+    more = Boolean(pageResult.body.more)
+    lasttime = pageResult.body.lasttime
+
+    if (more) {
+      const cursor = String(lasttime ?? '')
+      if (!cursor || cursors.has(cursor)) {
+        return errorResponse(
+          'Upstream event pagination cursor stalled',
+          cookies,
+        )
+      }
+      cursors.add(cursor)
+    }
+
+    if (more && pageCount >= MAX_PAGES) {
+      return errorResponse(
+        `Upstream event pagination exceeded ${MAX_PAGES} pages`,
+        cookies,
+      )
+    }
+  }
+
+  const retrievedCount = events.length
+  const unavailableCount =
+    size == null ? null : Math.max(size - retrievedCount, 0)
+
+  return {
+    status: 200,
+    body: {
+      code: 200,
+      events,
+      size,
+      retrievedCount,
+      unavailableCount,
+      sizeMismatch: size == null ? null : size !== retrievedCount,
+      pageCount,
+      more: false,
+      lasttime: lasttime ?? null,
+    },
+    cookie: cookies,
+  }
+};
+})(),
 
   // /user/follow/mixed  <-- user_follow_mixed.js
   '/user/follow/mixed': (query, request) => {
@@ -5161,9 +6146,16 @@ export function registerGeneratedRoutes(app) {
 function handleModule(moduleFn) {
   return async (req, res) => {
     try {
+      // 显式传入的 cookie（查询参数 / 表单）优先。
+      // req.cookies 恒为对象（见 index.js 的 cookie 中间件），无条件赋值会把
+      // URL 上的 cookie 参数覆盖成空对象，导致前端登录态完全丢失。
       const query = { ...req.query, ...req.body };
-      if (req.cookies) query.cookie = req.cookies;
-      else if (req.headers.cookie) query.cookie = req.headers.cookie;
+      if (!query.cookie) {
+        query.cookie =
+          Object.keys(req.cookies || {}).length > 0
+            ? req.cookies
+            : req.headers.cookie || {};
+      }
 
       const ip =
         req.ip || req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || '';
@@ -5206,7 +6198,7 @@ function handleModule(moduleFn) {
 }
 
 export const routeStats = {
-  total: 413,
-  skipped: 28,
-  skippedModules: [{"route":"/ad/listening/rights/gain","reason":"unsupported require: ./ad_get.js"},{"route":"/aidj/content/rcmd","reason":"unsupported require: ../util/logger.js"},{"route":"/api","reason":"unsupported require: ../util/index"},{"route":"/audio/match","reason":"unsupported require: axios"},{"route":"/avatar/upload","reason":"unsupported require: ../plugins/upload"},{"route":"/cloud","reason":"unsupported require: ../plugins/songUpload, ../util/logger.js, ../util/fileHelper, music-metadata"},{"route":"/cloud/upload/token","reason":"unsupported require: axios"},{"route":"/decrypt","reason":"unsupported require: ../util/crypto"},{"route":"/dj/program","reason":"unsupported require: ../util"},{"route":"/eapi/decrypt","reason":"unsupported require: ../util/crypto"},{"route":"/inner/version","reason":"unsupported require: ../package.json"},{"route":"/login/qr/create","reason":"unsupported require: qrcode, ../util/index"},{"route":"/playlist/cover/update","reason":"unsupported require: ../plugins/upload"},{"route":"/playlist/track/add","reason":"unsupported require: ../util/logger.js"},{"route":"/register/anonimous","reason":"unsupported require: path, fs, ../util/logger.js, ../util/index"},{"route":"/register/checktoken/v2","reason":"unsupported require: jsdom, axios, ../util/logger"},{"route":"/register/checktoken/v3","reason":"unsupported require: axios"},{"route":"/register/neapikey","reason":"unsupported require: axios, ../util/neapiKey, ../util/neapiConfig"},{"route":"/register/xeapikey","reason":"unsupported require: axios, ../util/crypto"},{"route":"/related/playlist","reason":"unsupported require: axios"},{"route":"/scrobble/v1","reason":"unsupported require: ../util/ncbl"},{"route":"/song/download/url/v1","reason":"unsupported require: ../util/index.js"},{"route":"/song/url/match","reason":"unsupported require: ../util/logger.js, @neteasecloudmusicapienhanced/unblockmusic-utils"},{"route":"/song/url/v1","reason":"unsupported require: ../util/logger.js, ../util/index.js, @neteasecloudmusicapienhanced/unblockmusic-utils, dotenv"},{"route":"/song/url/v1/302","reason":"unsupported require: ../util/index.js"},{"route":"/user/event/all","reason":"unsupported require: ./user_account.js, ./user_event.js"},{"route":"/verify/getQr","reason":"unsupported require: qrcode"},{"route":"/voice/upload","reason":"unsupported require: axios, fs, xml2js, ../plugins/upload, ../util/fileHelper"}],
+  total: 429,
+  skipped: 12,
+  skippedModules: [{"route":"/avatar/upload","reason":"unsupported require: ../plugins/upload"},{"route":"/cloud","reason":"unsupported require: ../plugins/songUpload, ../util/fileHelper, music-metadata"},{"route":"/login/qr/create","reason":"unsupported require: qrcode"},{"route":"/playlist/cover/update","reason":"unsupported require: ../plugins/upload"},{"route":"/register/anonimous","reason":"unsupported require: path, fs"},{"route":"/register/checktoken/v2","reason":"unsupported require: jsdom"},{"route":"/register/neapikey","reason":"unsupported require: ../util/neapiKey, ../util/neapiConfig"},{"route":"/scrobble/v1","reason":"unsupported require: ../util/ncbl"},{"route":"/song/url/match","reason":"unsupported require: @neteasecloudmusicapienhanced/unblockmusic-utils"},{"route":"/song/url/v1","reason":"unsupported require: @neteasecloudmusicapienhanced/unblockmusic-utils, dotenv"},{"route":"/verify/getQr","reason":"unsupported require: qrcode"},{"route":"/voice/upload","reason":"unsupported require: fs, xml2js, ../plugins/upload, ../util/fileHelper"}],
 };

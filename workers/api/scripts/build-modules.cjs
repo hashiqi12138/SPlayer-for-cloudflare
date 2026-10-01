@@ -17,9 +17,34 @@ const path = require('path');
 const MODULE_DIR = path.join(__dirname, '..', 'ncm-source', 'module');
 const OUTPUT_FILE = path.join(__dirname, '..', 'src', 'generated-routes.js');
 
-// 允许的额外 require（会映射为文件顶部 import / 局部 const）
-const ALLOWED_EXTRA_REQUIRES = {
-  'crypto-js': '__CryptoJS__',
+// 允许的额外 require：映射为文件顶部的 ESM import。
+// 这些模块在原仓库依赖 fs / ANSI 日志 / JSON 文件，Workers 里无法直接加载，
+// 因此用 src/shims/* 提供等价实现。
+const SHIM_REQUIRES = {
+  'crypto-js': {
+    id: '__CryptoJS__',
+    import: "import CryptoJS from 'crypto-js';\nconst __CryptoJS__ = CryptoJS;",
+  },
+  axios: { id: '__axios__', import: "import __axios__ from './shims/axios.js';" },
+  '../util/logger.js': { id: '__logger__', import: "import __logger__ from './shims/logger.js';" },
+  '../util/logger': { id: '__logger__', import: "import __logger__ from './shims/logger.js';" },
+  '../util/index.js': { id: '__util__', import: "import __util__ from './shims/util.js';" },
+  '../util/index': { id: '__util__', import: "import __util__ from './shims/util.js';" },
+  '../util': { id: '__util__', import: "import __util__ from './shims/util.js';" },
+  '../package.json': { id: '__pkg__', import: "import __pkg__ from './shims/pkg.js';" },
+  // config.json 提供具名导出（APP_CONF / resourceTypeMap），
+  // 原做法是整行删掉，会让用到 APP_CONF 的模块在运行时取到 undefined
+  '../util/config.json': {
+    id: '__config__',
+    import: "import * as __config__ from './shims/config.js';",
+  },
+  './config.json': {
+    id: '__config__',
+    import: "import * as __config__ from './shims/config.js';",
+  },
+  // util/crypto 的 Workers 版实现（含 eapi 解密、xeapiSign 等可移植部分）
+  '../util/crypto.js': { id: '__crypto__', import: "import __crypto__ from './shims/crypto.js';" },
+  '../util/crypto': { id: '__crypto__', import: "import __crypto__ from './shims/crypto.js';" },
 };
 
 function moduleNameToRoute(filename) {
@@ -28,19 +53,39 @@ function moduleNameToRoute(filename) {
 
 function transpile(content) {
   // 1. 去掉已知的 require 行
-  let code = content
-    .replace(/^\s*const\s*\{[^}]*\}\s*=\s*require\(\s*['"][^'"]*config\.json['"]\s*\)\s*;?\s*$/gm, '')
-    .replace(/^\s*const\s+\w+\s*=\s*require\(\s*['"][^'"]*option\.js['"]\s*\)\s*;?\s*$/gm, '');
+  //    注意：config.json 不能再整行删除——它现在映射到 shims/config.js，
+  //    删除会让 `const { APP_CONF } = require('...config.json')` 整句消失。
+  let code = content.replace(
+    /^\s*const\s+\w+\s*=\s*require\(\s*['"][^'"]*option\.js['"]\s*\)\s*;?\s*$/gm,
+    '',
+  );
 
-  // 2. 处理允许的额外 require
-  const usedCryptoJs = /require\(\s*['"]crypto-js['"]\s*\)/.test(code);
-  if (usedCryptoJs) {
-    code = code.replace(
-      /^\s*const\s+\w+\s*=\s*require\(\s*['"]crypto-js['"]\s*\)\s*;?\s*$/gm,
-      'const CryptoJS = __CryptoJS__;'
-    );
-    code = code.replace(/require\(\s*['"]crypto-js['"]\s*\)/g, '__CryptoJS__');
+  // 2. 把可替代的 require 整体替换为 shim 标识符。
+  //    直接替换调用表达式（而非整行），这样 `const { x } = require(p)` 与
+  //    `const logger = require(p)` 两种写法都能原样保留。
+  const usedShims = new Set();
+  for (const [reqPath, shim] of Object.entries(SHIM_REQUIRES)) {
+    const escaped = reqPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`require\\(\\s*['"]${escaped}['"]\\s*\\)`, 'g');
+    if (re.test(code)) {
+      code = code.replace(re, shim.id);
+      usedShims.add(shim.id);
+    }
   }
+
+  // 2.5 同目录模块之间的相互调用：require('./ad_get.js') → __moduleRef('/ad/get')
+  //     这些「子模块」本身也是注册在册的路由，运行时按路由名延迟取用即可，
+  //     不需要把源码内联进来。
+  const usedModuleRefs = new Set();
+  code = code.replace(
+    /require\(\s*['"]\.\/([\w.-]+)\.js['"]\s*\)/g,
+    (match, name) => {
+      if (!fs.existsSync(path.join(MODULE_DIR, `${name}.js`))) return match;
+      const route = '/' + name.replace(/_/g, '/');
+      usedModuleRefs.add(route);
+      return `__moduleRef(${JSON.stringify(route)})`;
+    },
+  );
 
   // 3. 若仍有未支持的 require，放弃该模块
   const remaining = [...code.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map(m => m[1]);
@@ -52,15 +97,34 @@ function transpile(content) {
   const m = code.match(/module\.exports\s*=/);
   if (!m) return { ok: false, reason: 'no module.exports' };
 
+  // 4.1 补回 shim 绑定。
+  //     `const { toBoolean } = require('../util')` 这类声明写在 module.exports 之前，
+  //     只截取 exports 之后的代码会把绑定丢掉，运行时报 "xxx is not defined"。
+  //     这里只挑出「从 shim 标识符 / __moduleRef 取值」的声明行，塞进函数体开头。
+  const head = code.slice(0, m.index);
+  const bindings = head
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) =>
+      /^(const|let|var)\s+.+=\s*(__\w+__|__moduleRef\(['"][^'"]*['"]\))\s*;?$/.test(l),
+    );
+
   let fn = code.slice(m.index + m[0].length).trim();
   // 去掉结尾分号
   fn = fn.replace(/;\s*$/, '');
 
+  // 先校验 exports 本身是函数表达式，再拼接 shim 绑定（否则前缀会干扰判断）
   if (!/^(async\s*)?\(/.test(fn) && !/^(async\s+)?function/.test(fn)) {
     return { ok: false, reason: 'exports is not a function expression' };
   }
 
-  return { ok: true, fn, usesCryptoJs: usedCryptoJs };
+  // 绑定必须以「函数体语句」的形式出现，而 exports 是对象属性值（不能直接前缀语句），
+// 因此用一个立即执行函数包一层，把绑定放进闭包里再返回原函数。
+  if (bindings.length > 0) {
+    fn = `(() => {\n${bindings.join('\n')}\nreturn ${fn};\n})()`;
+  }
+
+  return { ok: true, fn, usedShims, usedModuleRefs };
 }
 
 function main() {
@@ -76,10 +140,36 @@ function main() {
       skipped.push({ route, file, reason: r.reason });
       continue;
     }
-    entries.push({ route, file, fn: r.fn, usesCryptoJs: r.usesCryptoJs });
+    entries.push({ route, file, fn: r.fn, usedShims: r.usedShims, usedModuleRefs: r.usedModuleRefs });
   }
 
-  const usesCryptoJs = entries.some(e => e.usesCryptoJs);
+  // 收集实际用到的 shim import（按 SHIM_REQUIRES 声明顺序，保证输出稳定）。
+  // 必须按 id 去重：多个 require 路径会映射到同一个标识符，
+  // 重复 import 同名绑定会导致 ESM 语法错误。
+  const usedShimIds = new Set();
+  for (const e of entries) for (const id of e.usedShims) usedShimIds.add(id);
+  // 同目录模块互调用到的路由（用于生成 __moduleRef 辅助函数）
+  const usedModuleRefIds = new Set();
+  for (const e of entries) {
+    if (e.usedModuleRefs) for (const r of e.usedModuleRefs) usedModuleRefIds.add(r);
+  }
+
+  const seenIds = new Set();
+  const shimImports = Object.values(SHIM_REQUIRES)
+    .filter((s) => usedShimIds.has(s.id) && !seenIds.has(s.id) && seenIds.add(s.id))
+    .map((s) => s.import)
+    .join('\n');
+
+  // 同目录模块互调所需的辅助函数（仅在确有互调时输出）
+  const moduleRefHelper =
+    usedModuleRefIds.size > 0
+      ? `
+// 同目录模块互调（如 user_event_all 复用 user_account）：
+// 按路由名延迟取用。moduleFns 在下方定义，但调用发生在请求期，不受 TDZ 影响。
+const __moduleRef = (route) => (query, request, deps) =>
+  moduleFns[route](query, request, deps);
+`
+      : '';
 
   let out = `/**
  * 自动生成 —— 请勿手动编辑
@@ -92,7 +182,7 @@ function main() {
  */
 
 import createOption from './option.js';
-${usesCryptoJs ? "import CryptoJS from 'crypto-js';\nconst __CryptoJS__ = CryptoJS;\n" : ''}
+${shimImports ? shimImports + '\n' : ''}
 // 评论等接口的资源类型映射（对应 util/config.json）
 const resourceTypeMap = {
   '0': 'R_SO_4_',
@@ -104,7 +194,7 @@ const resourceTypeMap = {
   '6': 'A_EV_2_',
   '7': 'A_DR_14_',
 };
-
+${moduleRefHelper}
 export const moduleFns = {
 `;
 
@@ -123,9 +213,16 @@ export function registerGeneratedRoutes(app) {
 function handleModule(moduleFn) {
   return async (req, res) => {
     try {
+      // 显式传入的 cookie（查询参数 / 表单）优先。
+      // req.cookies 恒为对象（见 index.js 的 cookie 中间件），无条件赋值会把
+      // URL 上的 cookie 参数覆盖成空对象，导致前端登录态完全丢失。
       const query = { ...req.query, ...req.body };
-      if (req.cookies) query.cookie = req.cookies;
-      else if (req.headers.cookie) query.cookie = req.headers.cookie;
+      if (!query.cookie) {
+        query.cookie =
+          Object.keys(req.cookies || {}).length > 0
+            ? req.cookies
+            : req.headers.cookie || {};
+      }
 
       const ip =
         req.ip || req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || '';

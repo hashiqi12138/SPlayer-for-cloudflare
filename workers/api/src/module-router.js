@@ -8,6 +8,7 @@
  */
 
 import { createRequest } from './ncm-request-handler.js';
+import createOption from './option.js';
 
 export function registerModules(app) {
 
@@ -21,7 +22,7 @@ export function registerModules(app) {
         level: query.level || 'standard',
         encodeType: query.encodeType || 'mp3',
       },
-      { crypto: 'eapi' }
+      createOption(query, 'eapi')
     );
   }));
 
@@ -50,9 +51,16 @@ export function registerModules(app) {
 function handleModule(moduleFn) {
   return async (req, res) => {
     try {
+      // 显式传入的 cookie（查询参数 / 表单）优先。
+      // req.cookies 恒为对象（见 index.js 的 cookie 中间件），无条件赋值会把
+      // URL 上的 cookie 参数覆盖成空对象，导致前端登录态完全丢失。
       const query = { ...req.query, ...req.body };
-      if (req.cookies) query.cookie = req.cookies;
-      else if (req.headers.cookie) query.cookie = req.headers.cookie;
+      if (!query.cookie) {
+        query.cookie =
+          Object.keys(req.cookies || {}).length > 0
+            ? req.cookies
+            : req.headers.cookie || {};
+      }
 
       const ip = req.ip || req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || '';
 

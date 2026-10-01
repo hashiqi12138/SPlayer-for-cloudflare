@@ -39,6 +39,28 @@ const testCases = [
   { name: '歌曲详情', path: '/song/detail?ids=304867', method: 'GET', expectedCode: 200 },
   { name: '歌曲URL', path: '/song/url?id=304867', method: 'GET', expectedCode: 200 },
   { name: '歌曲URL v1', path: '/song/url/v1?id=304867&level=standard', method: 'GET', expectedCode: 200 },
+  // 播放链路回归：接口顶层 code 恒为 200，真正的失败藏在 data[0].url 为空里，
+  // 必须显式校验取到直链，否则「歌曲无法播放」不会被测试发现。
+  {
+    name: '歌曲URL v1-取到直链',
+    path: '/song/url/v1?id=3342319503&level=exhigh',
+    method: 'GET',
+    expectedCode: 200,
+    validate: (json) => {
+      const d = json.data && json.data[0];
+      return d && d.url ? null : `data[0].url 为空 (songCode=${d && d.code})`;
+    },
+  },
+  {
+    name: '歌曲URL-取到直链',
+    path: '/song/url?id=3342319503&br=320000',
+    method: 'GET',
+    expectedCode: 200,
+    validate: (json) => {
+      const d = json.data && json.data[0];
+      return d && d.url ? null : `data[0].url 为空 (songCode=${d && d.code})`;
+    },
+  },
   { name: '歌曲音质详情', path: '/song/music/detail?id=304867', method: 'GET', expectedCode: 200 },
   { name: '歌词-新版', path: '/lyric/new?id=304867', method: 'GET', expectedCode: 200 },
   { name: '歌词-旧版', path: '/lyric?id=304867', method: 'GET', expectedCode: 200 },
@@ -96,6 +118,78 @@ const testCases = [
   // ===== 每日推荐 =====
   { name: '每日推荐歌单', path: '/recommend/resource', method: 'GET', expectedCode: 200, loginRequired: true },
   { name: '每日推荐歌曲', path: '/recommend/songs', method: 'GET', expectedCode: 200 },
+
+  // ===== 客户端版本 / 下载 / 电台 / 透传（依赖 shims 适配的模块）=====
+  {
+    name: '客户端版本',
+    path: '/inner/version',
+    method: 'GET',
+    expectedCode: 200,
+    validate: (json) => (json.data && json.data.version ? null : '缺少 data.version'),
+  },
+  {
+    name: '歌曲下载链接',
+    path: '/song/download/url/v1?id=3342319503&level=exhigh',
+    method: 'GET',
+    expectedCode: 200,
+    validate: (json) => (json.data && json.data.url ? null : 'data.url 为空'),
+  },
+  {
+    name: '歌曲直链302',
+    path: '/song/url/v1/302?id=3342319503&level=exhigh',
+    method: 'GET',
+    expectRedirect: true,
+  },
+  {
+    name: '电台节目',
+    path: '/dj/program?rid=336355127&limit=3',
+    method: 'GET',
+    expectedCode: 200,
+    validate: (json) => (json.programs && json.programs.length > 0 ? null : 'programs 为空'),
+  },
+  { name: '私人DJ推荐', path: '/aidj/content/rcmd', method: 'GET', expectedCode: 200 },
+  {
+    name: '通用透传',
+    path: '/api?uri=/api/song/detail&data=' + encodeURIComponent('{"ids":"[3342319503]"}'),
+    method: 'GET',
+    expectedCode: 200,
+  },
+
+  // ===== 新适配批次（axios / config / crypto / 模块互调 shim）=====
+  {
+    name: '相关歌单',
+    path: '/related/playlist?id=10042797373',
+    method: 'GET',
+    expectedCode: 200,
+    validate: (json) =>
+      json.playlists && json.playlists.length > 0 ? null : 'playlists 为空',
+  },
+  {
+    name: '解密-通用缺参',
+    path: '/decrypt',
+    method: 'GET',
+    expectedCode: 400,
+  },
+  {
+    name: '解密-eapi缺参',
+    path: '/eapi/decrypt',
+    method: 'GET',
+    expectedCode: 400,
+  },
+  {
+    name: '反作弊Token-v3',
+    path: '/register/checktoken/v3',
+    method: 'GET',
+    expectedCode: 200,
+    validate: (json) =>
+      typeof json.token === 'string' ? null : 'token 字段缺失或类型错误',
+  },
+  {
+    name: '云盘上传token缺参',
+    path: '/cloud/upload/token',
+    method: 'GET',
+    expectedCode: 400,
+  },
 ];
 
 // ============================================================
@@ -115,6 +209,7 @@ async function runTests() {
   let passed = 0;
   let failed = 0;
   let skipped = 0;
+  let blocked = 0;
   
   for (let i = 0; i < testCases.length; i++) {
     const tc = testCases[i];
@@ -127,6 +222,9 @@ async function runTests() {
       if (result.pass && result.skipped) {
         skipped++;
         console.log(`⏭   (${result.errorMsg})`);
+      } else if (result.blocked) {
+        blocked++;
+        console.log(`🚧  (${result.errorMsg})`);
       } else if (result.pass) {
         passed++;
         console.log('✅');
@@ -149,6 +247,55 @@ async function runTests() {
     }
   }
   
+  // ===== 额外：eapi 请求解密往返校验 =====
+  // 本地用同一套算法构造密文 → 交给 /eapi/decrypt 解密 → 比对明文。
+  // 这样能真正验证解密链路正确，而不是只看接口有没有报错。
+  {
+    const idx = testCases.length + 1;
+    process.stdout.write(`[${idx}/${idx}] 解密-eapi往返... `);
+    try {
+      const { eapi } = await import('../src/ncm-crypto.js');
+      const target = '/api/song/enhance/player/url/v1';
+      const payload = { ids: '[3342319503]', level: 'exhigh' };
+      const { params } = eapi(target, payload);
+
+      const rt = await testEndpoint({
+        name: '解密-eapi往返',
+        path: `/eapi/decrypt?hexString=${encodeURIComponent(params)}&isReq=true`,
+        method: 'GET',
+        expectedCode: 200,
+        validate: (json) => {
+          const d = json.data || {};
+          if (d.url !== target) return `解密出的 url 不匹配: ${d.url}`;
+          if (String(d.data && d.data.ids) !== payload.ids) {
+            return `解密出的 data 不匹配: ${JSON.stringify(d.data)}`;
+          }
+          return null;
+        },
+      });
+      testCases.push(rt);
+      results.push(rt);
+      if (rt.pass) {
+        passed++;
+        console.log('✅');
+      } else {
+        failed++;
+        console.log(`❌  (${rt.status}, ${rt.errorMsg || 'unknown'})`);
+      }
+    } catch (err) {
+      failed++;
+      console.log(`💥  (${err.message})`);
+      results.push({
+        name: '解密-eapi往返',
+        path: '/eapi/decrypt',
+        pass: false,
+        status: 'error',
+        errorMsg: err.message,
+      });
+      testCases.push({ name: '解密-eapi往返', path: '/eapi/decrypt' });
+    }
+  }
+
   // 输出报告
   console.log('');
   console.log('═'.repeat(50));
@@ -157,6 +304,7 @@ async function runTests() {
   console.log(`  总计: ${testCases.length}`);
   console.log(`  通过: ${passed}  (${((passed / testCases.length) * 100).toFixed(1)}%)`);
   console.log(`  跳过: ${skipped}  (需登录，未提供 NCM_COOKIE)`);
+  console.log(`  风控: ${blocked}  (网易云 -462，Cloudflare 出口 IP 环境问题)`);
   console.log(`  失败: ${failed}  (${((failed / testCases.length) * 100).toFixed(1)}%)`);
   console.log('');
   
@@ -164,7 +312,7 @@ async function runTests() {
   if (failed > 0) {
     console.log('❌ 失败的接口:');
     console.log('');
-    results.filter(r => !r.pass).forEach(r => {
+    results.filter(r => !r.pass && !r.blocked).forEach(r => {
       console.log(`  • ${r.name}`);
       console.log(`    路径: ${r.path}`);
       console.log(`    状态: ${r.status}`);
@@ -185,13 +333,14 @@ async function runTests() {
     total: testCases.length,
     passed,
     skipped,
+    blocked,
     failed,
     results,
   }, null, 2));
   
   // 保存 markdown 报告
   const mdFile = path.join(OUTPUT_DIR, `report-${TIMESTAMP}.md`);
-  fs.writeFileSync(mdFile, generateMarkdownReport(results, passed, failed, skipped));
+  fs.writeFileSync(mdFile, generateMarkdownReport(results, passed, failed, skipped, blocked));
   
   console.log(`📄 JSON 报告: ${reportFile}`);
   console.log(`📄 Markdown 报告: ${mdFile}`);
@@ -216,6 +365,21 @@ function testEndpoint(tc) {
       res.setEncoding('utf8');
       res.on('data', chunk => { data += chunk; });
       res.on('end', () => {
+        // 302 类接口（如 /song/url/v1/302）不返回 JSON，校验的是 Location 重定向
+        if (tc.expectRedirect) {
+          const loc = res.headers.location;
+          const ok = (res.statusCode === 301 || res.statusCode === 302) && !!loc;
+          resolve({
+            ...tc,
+            pass: ok,
+            status: res.statusCode,
+            responseCode: res.statusCode,
+            errorMsg: ok ? null : `期望 302 + Location，实际 HTTP ${res.statusCode}`,
+            responseSize: 0,
+          });
+          return;
+        }
+
         try {
           const json = JSON.parse(data);
           // 业务码可能出现在顶层，也可能被模块包在 data 里（如 /login/status）
@@ -236,14 +400,37 @@ function testEndpoint(tc) {
             return;
           }
 
-          const pass = res.statusCode === 200 && codes.includes(tc.expectedCode);
+          // 网易云风控（-462 需要验证）：来自 Cloudflare 出口 IP 的环境问题，
+          // 与接口移植质量无关，单独归类，避免污染通过率。
+          if (codes.includes(-462)) {
+            resolve({
+              ...tc,
+              pass: false,
+              blocked: true,
+              status: res.statusCode,
+              responseCode: -462,
+              errorMsg: '被网易云风控拦截（-462，需人工验证）',
+              responseSize: data.length,
+            });
+            return;
+          }
+
+          // 校验参数错误类接口时，HTTP 状态码会与业务码一致（如均为 400），
+          // 不能一律要求 HTTP 200，否则「正确的报错」会被判成失败。
+          const codeOk =
+            codes.includes(tc.expectedCode) &&
+            (res.statusCode === 200 || res.statusCode === tc.expectedCode);
+          const customErr = codeOk && tc.validate ? tc.validate(json) : null;
+          const pass = codeOk && !customErr;
 
           resolve({
             ...tc,
             pass,
             status: res.statusCode,
             responseCode: codes[0],
-            errorMsg: !pass ? (json.msg || json.message || `HTTP ${res.statusCode}, code ${codes.join('/')}`) : null,
+            errorMsg: !pass
+              ? (customErr || json.msg || json.message || `HTTP ${res.statusCode}, code ${codes.join('/')}`)
+              : null,
             responseSize: data.length,
           });
         } catch (e) {
@@ -270,7 +457,7 @@ function testEndpoint(tc) {
   });
 }
 
-function generateMarkdownReport(results, passed, failed, skipped = 0) {
+function generateMarkdownReport(results, passed, failed, skipped = 0, blocked = 0) {
   const total = results.length;
   const pct = ((passed / total) * 100).toFixed(1);
   
@@ -281,6 +468,7 @@ function generateMarkdownReport(results, passed, failed, skipped = 0) {
 - 总用例: ${total}
 - 通过: ${passed} (${pct}%)
 - 跳过: ${skipped} (需登录)
+- 风控: ${blocked} (网易云 -462)
 - 失败: ${failed} (${((failed / total) * 100).toFixed(1)}%)
 
 ## 通过的接口
@@ -307,6 +495,22 @@ function generateMarkdownReport(results, passed, failed, skipped = 0) {
     });
   }
   
+  if (blocked > 0) {
+    md += `
+## 被网易云风控拦截的接口
+
+> 返回业务码 \`-462\`（需要人工验证）。属于 Cloudflare 出口 IP 的信誉问题，
+> 非接口移植缺陷，换用住宅/自建 IP 通常即可恢复。
+
+| # | 接口名称 | 路径 |
+|---|---------|------|
+`;
+    idx = 1;
+    results.filter(r => r.blocked).forEach(r => {
+      md += `| ${idx++} | ${r.name} | \`${r.path.split('?')[0]}\` |\n`;
+    });
+  }
+  
   md += `
 ## 失败的接口
 
@@ -315,7 +519,7 @@ function generateMarkdownReport(results, passed, failed, skipped = 0) {
 `;
 
   idx = 1;
-  results.filter(r => !r.pass).forEach(r => {
+  results.filter(r => !r.pass && !r.blocked).forEach(r => {
     md += `| ${idx++} | ${r.name} | \`${r.path.split('?')[0]}\` | ${r.status} | ${r.errorMsg || ''} |\n`;
   });
   
