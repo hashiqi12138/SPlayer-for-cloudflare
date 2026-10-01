@@ -12,8 +12,9 @@ const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const cfg = require('./config.cjs');
 
-const BASE_URL = process.argv[2] || 'https://ncm-api.liujieahu.workers.dev';
+const BASE_URL = process.argv[2] || cfg.apiWorkerUrl;
 const COOKIE = process.env.NCM_COOKIE || '';
 const OUTPUT_DIR = path.join(__dirname, '..', 'test-results');
 const TIMESTAMP = Date.now();
@@ -393,7 +394,7 @@ async function runTests() {
           const res = await fetch(abs, {
             headers: {
               Range: 'bytes=0-2047',
-              Origin: 'https://dev.splayer-dvj.pages.dev',
+              Origin: cfg.pagesUrl,
             },
             signal: AbortSignal.timeout(30000),
           });

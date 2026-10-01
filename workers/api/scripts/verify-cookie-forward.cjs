@@ -10,7 +10,9 @@
  *
  * 退出码: 0 = 全部通过, 1 = 存在失败
  */
-const BASE = process.argv[2] || 'https://ncm-api.liujieahu.workers.dev';
+const cfg = require('./config.cjs');
+
+const BASE = process.argv[2] || cfg.apiWorkerUrl;
 const COOKIE = process.env.NCM_COOKIE || '';
 const ECHO = 'https://httpbin.org/anything';
 

@@ -8,7 +8,9 @@
  * 不做前缀剥离。
  */
 
-const API_WORKER_URL = 'https://ncm-api.liujieahu.workers.dev';
+// API Worker 地址。占位符由 scripts/deploy-pages.ps1 按 deploy.config.json
+// 在同步到 splayer-frontend/functions 时替换，请勿直接改成真实地址。
+const API_WORKER_URL = '__API_WORKER_URL__';
 
 export async function onRequest(context) {
   const { request, params } = context;

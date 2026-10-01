@@ -108,6 +108,27 @@ npm run deploy:proxy   # 部署音频代理 Worker
 npm run deploy:all     # 交互式选择
 ```
 
+部署脚本支持 `-NonInteractive`，跳过所有询问、全部取 `deploy.config.json`
+的配置值，便于自动化：
+
+```powershell
+.\scripts\deploy-pages.ps1 -NonInteractive
+```
+
+### 地址等环境配置
+
+`deploy.config.json` 是**地址的唯一事实来源**（API Worker、代理 Worker、Pages 项目/分支/访问地址）。
+`frontend-config/functions/` 里用 `__API_WORKER_URL__` / `__PROXY_WORKER_URL__` 占位，
+部署时由 `deploy-pages.ps1` 按配置注入；探针与测试脚本则通过 `workers/api/scripts/config.cjs` 读取。
+需要换环境（例如换账号、换域名）时只改这一个文件。
+
+### PowerShell 脚本必须以 UTF-8 BOM 保存
+
+`scripts/*.ps1` 含中文与 emoji。Windows PowerShell 5.1 会把**无 BOM 的 UTF-8**
+按系统 ANSI 代码页解码，乱码后破坏引号/括号配对，脚本会直接报
+`Missing closing '}'` 之类的解析错误。CI 中已有校验防止回退。
+（PowerShell 7 默认按 UTF-8 读取，不受此影响。）
+
 ## 已知限制
 
 | 限制 | 说明 |

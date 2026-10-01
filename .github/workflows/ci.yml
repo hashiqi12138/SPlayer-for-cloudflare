@@ -1,0 +1,96 @@
+name: CI
+
+# 说明：本仓库依赖两个外部上游仓库（以 submodule 固定版本引入）与本地补丁。
+# CI 的核心目标是守住「可复现」这条线：
+#   按固定版本检出依赖 -> 打补丁 -> 重新构建 -> 与入库产物比对
+# 若上游推进后忘记同步补丁/重建产物，这里会直接失败。
+#
+# 接口测试（69 个用例）依赖外部网络与特定出口环境（部分音源按 IP 限流），
+# 不适合作为常规 CI 门禁，故单独放在手动触发（workflow_dispatch）的 job 里。
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  reproducible-build:
+    name: 依赖与构建可复现性
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码（含 submodule 固定版本）
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: 按固定版本准备依赖并应用补丁
+        run: npm run deps:setup
+
+      - name: 校验生成物可复现
+        # 重新构建后 generated-routes.js 必须与入库版本完全一致。
+        # 该文件由 ncm-source 的模块转译而来，而补丁会改动其中的模块，
+        # 因此这一步同时验证了「补丁确实已应用」。
+        run: |
+          if ! git diff --exit-code -- workers/api/src/generated-routes.js; then
+            echo "::error::generated-routes.js 与重新构建的结果不一致"
+            echo "请本地执行 npm run deps:update 后提交重建产物"
+            exit 1
+          fi
+          echo "✅ 生成物与入库版本一致"
+
+      - name: Worker 源码语法检查
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            if ! node --check "$f" 2>/dev/null; then
+              echo "::error file=$f::语法检查未通过"
+              fail=1
+            fi
+          done < <(find workers/api/src workers/music-proxy/src -name '*.js' -not -path '*/node_modules/*')
+          exit $fail
+
+      - name: 校验 PowerShell 脚本带 UTF-8 BOM
+        # Windows PowerShell 5.1 会把「无 BOM 的 UTF-8」按系统 ANSI 代码页解码，
+        # 脚本里的中文与 emoji 变成乱码后可能破坏引号/括号配对，导致脚本直接
+        # 无法解析。这些脚本曾长期缺 BOM，故在此加一道防线。
+        run: |
+          bad=0
+          for f in $(git ls-files '*.ps1'); do
+            sig=$(head -c 3 "$f" | od -An -tx1 | tr -d ' \n')
+            if [ "$sig" != "efbbbf" ]; then
+              echo "::error file=$f::缺少 UTF-8 BOM，Windows PowerShell 5.1 下无法解析"
+              bad=1
+            fi
+          done
+          [ $bad -eq 0 ] && echo "✅ 全部 .ps1 均带 BOM"
+          exit $bad
+
+      - name: 依赖状态
+        run: npm run deps:status
+
+  integration-smoke:
+    name: 线上接口冒烟（手动触发）
+    # 打已部署的 Worker，校验 0 失败用例。
+    # 「受限」类（网易云 -462、解锁音源地区限制）不计入失败。
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: 运行接口测试
+        # 需要登录态的用例在未提供 NCM_COOKIE 时自动跳过
+        env:
+          NCM_COOKIE: ${{ secrets.NCM_COOKIE }}
+        run: npm run test:api
