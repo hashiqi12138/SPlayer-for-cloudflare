@@ -5,6 +5,25 @@
 
 发布流程见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
+## [1.0.2] - 2026-10-01
+
+### 修复
+
+- **`/personal_fm` 等三个接口 404**：上游 `server.js` 里有一张 `specificRoute` 例外表，
+  其中 `daily_signin`、`fm_trash`、`personal_fm` 三条是「下划线原样保留」的路径。
+  转译器忽略了这张表，一律把下划线换成斜杠，于是这三个接口被注册到了
+  `/daily/signin`、`/fm/trash`、`/personal/fm`，真实路径直接 404
+  （用户上报：私人漫游返回 `{code:404,"msg":"Not Found"}`）。
+- 顺带修正 `__moduleRef` 的路由推导：模块间互调必须与路由注册使用同一套路径规则，
+  否则 `require('./xxx.js')` 会被改写成指向一个不存在的路由名，运行时取到 `undefined`。
+
+### 新增
+
+- **路由规则一致性回归测试**（`test/generated-routes.test.mjs`）：不写死预期路径，
+  而是从上游 `server.js` 里解析出 `specificRoute` 例外表，再与生成结果逐条比对。
+  上游以后往表里加条目、或我们的映射逻辑写错，都会在测试里直接失败，
+  而不是等用户报 404。这类「转译规则与上游不一致」的问题只有靠这种比对才守得住。
+
 ## [1.0.1] - 2026-10-01
 
 修掉首次在 GitHub Actions 上暴露的问题（Windows 任务通过、Linux 任务失败）。

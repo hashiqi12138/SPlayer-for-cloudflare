@@ -1533,8 +1533,8 @@ return (query, request) => {
   return request(`/api/user/creator/authinfo/get`, data, createOption(query))
 },
 
-  // /daily/signin  <-- daily_signin.js
-  '/daily/signin': (query, request) => {
+  // /daily_signin  <-- daily_signin.js
+  '/daily_signin': (query, request) => {
   const data = {
     type: query.type || 0,
   }
@@ -2156,8 +2156,8 @@ return async (query, request) => {
   return request(`/api/fanscenter/trend/list`, data, createOption(query))
 },
 
-  // /fm/trash  <-- fm_trash.js
-  '/fm/trash': (query, request) => {
+  // /fm_trash  <-- fm_trash.js
+  '/fm_trash': (query, request) => {
   const data = {
     songId: query.id,
     alg: 'RT',
@@ -3006,8 +3006,8 @@ return async (query, request) => {
   return request(`/api/nickname/duplicated`, data, createOption(query, 'weapi'))
 },
 
-  // /personal/fm  <-- personal_fm.js
-  '/personal/fm': (query, request) => {
+  // /personal_fm  <-- personal_fm.js
+  '/personal_fm': (query, request) => {
   return request(`/api/v1/radio/get`, {}, createOption(query, 'weapi'))
 },
 

@@ -47,7 +47,28 @@ const SHIM_REQUIRES = {
   '../util/crypto': { id: '__crypto__', import: "import __crypto__ from './shims/crypto.js';" },
 }
 
+/**
+ * 上游 server.js 的 specificRoute 例外表
+ *
+ * 默认规则是把文件名里的下划线换成斜杠（`personal_fm.js` -> `/personal/fm`），
+ * 但这几个接口在上游是「下划线原样保留」的，必须单独列出。
+ *
+ * 这张表不是可选的：漏掉它会让这几个接口注册到**错误的路径**上，真实路径直接 404。
+ * 线上就出过 —— `GET /personal_fm` 返回 `{code:404,"msg":"Not Found"}`。
+ *
+ * 来源: ncm-source/server.js 中传给 getModulesDefinitions 的 special 映射
+ *      （examples/get_static_moddef.js 里是同一张表）
+ * 维护方式: 上游改动时 `git -C workers/api/ncm-source log -- server.js` 看一眼这张表，
+ *          并在 test/generated-routes.test.mjs 里同步预期
+ */
+const SPECIFIC_ROUTES = {
+  'daily_signin.js': '/daily_signin',
+  'fm_trash.js': '/fm_trash',
+  'personal_fm.js': '/personal_fm',
+}
+
 function moduleNameToRoute(filename) {
+  if (SPECIFIC_ROUTES[filename]) return SPECIFIC_ROUTES[filename]
   return '/' + filename.replace(/_/g, '/').replace(/\.js$/, '')
 }
 
@@ -76,10 +97,12 @@ function transpile(content) {
   // 2.5 同目录模块之间的相互调用：require('./ad_get.js') → __moduleRef('/ad/get')
   //     这些「子模块」本身也是注册在册的路由，运行时按路由名延迟取用即可，
   //     不需要把源码内联进来。
+  //     注意：这里必须与 moduleNameToRoute 用同一套路径规则（含 SPECIFIC_ROUTES），
+  //     否则 ref 指向的路由名与实际注册的 key 对不上，运行时会取到 undefined。
   const usedModuleRefs = new Set()
   code = code.replace(/require\(\s*['"]\.\/([\w.-]+)\.js['"]\s*\)/g, (match, name) => {
     if (!fs.existsSync(path.join(MODULE_DIR, `${name}.js`))) return match
-    const route = '/' + name.replace(/_/g, '/')
+    const route = moduleNameToRoute(`${name}.js`)
     usedModuleRefs.add(route)
     return `__moduleRef(${JSON.stringify(route)})`
   })
