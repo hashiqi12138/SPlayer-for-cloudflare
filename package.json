@@ -14,6 +14,7 @@
     "deps:update": "node scripts/deps.mjs update",
     "build:api": "node workers/api/scripts/build-modules.cjs",
     "test:api": "node workers/api/scripts/test-api.cjs",
+    "test:scripts": "bash scripts/tests/deploy-scripts.test.sh",
     "dev:proxy": "cd workers/music-proxy && npx wrangler dev",
     "dev:api": "cd workers/api && npx wrangler dev",
     "deploy:proxy": "node scripts/deploy.mjs proxy",

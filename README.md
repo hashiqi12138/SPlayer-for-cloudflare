@@ -84,7 +84,12 @@ commit）并未改动。用 `npm run deps:status` 可以准确判断补丁与版
 npm run dev:api        # 本地起 API Worker（默认 8788）
 npm run build:api      # 由 ncm-source 重建 src/generated-routes.js
 npm run test:api       # 接口测试（默认打本地 8788）
+npm run test:scripts   # 部署脚本自检（不需要凭据/网络，不会触发真实部署）
 ```
+
+`test:scripts` 覆盖 bash 与 PowerShell 两套部署脚本的公共行为：语法、换行符、
+参数解析、配置读取、资源准备、发布闸门、前置检查报错是否可操作。
+MSYS2 下若 node 不在 PATH，用 `NODE_DIR="C:\...\node" npm run test:scripts` 指定。
 
 接口测试共 69 个用例，覆盖搜索/歌曲/歌单/登录/播放链路/加解密/解锁等。
 带登录态运行：
@@ -143,6 +148,7 @@ DEPLOY_SHELL=bash node scripts/deploy.mjs pages   # 在 Windows 上强制走 bas
 | `scripts/deps.mjs` | 依赖 pin + 补丁 + 单测的发布闸门 |
 | `scripts/get-config.mjs` | 供 bash 读取 `deploy.config.json` 的单个键 |
 | `scripts/deploy.mjs` | `npm run deploy:*` 的平台分派入口 |
+| `scripts/tests/deploy-scripts.test.sh` | 部署脚本自检（`npm run test:scripts`） |
 
 之所以把「准备部署资源」抽成 Node 共享模块而不是两边各写一份：目录复制方式、
 占位符注入这类细节最容易被写出差异（历史上就出过 `Copy-Item` 复制目录嵌套、

@@ -98,6 +98,11 @@ jobs:
           [ $fail -eq 0 ] && echo "✅ shell 脚本与补丁换行符检查通过"
           exit $fail
 
+      - name: 部署脚本自检
+        # 用假 node / 收窄的 PATH 走一遍各条失败路径与发布闸门。
+        # 不需要凭据、不需要网络，也不会触发真实部署。
+        run: bash scripts/tests/deploy-scripts.test.sh
+
       - name: 依赖状态
         run: npm run deps:status
 
