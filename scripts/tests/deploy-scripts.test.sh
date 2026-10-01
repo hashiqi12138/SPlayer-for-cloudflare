@@ -183,11 +183,8 @@ else
   out="$(cd "$REPO" && node "$SCRIPTS/prepare-pages.mjs" 2>&1)"
   chk $? "prepare-pages.mjs 退出码 0"
   chk_contains "$out" 'Pages Functions 已同步' "Functions 同步输出"
-  chk_contains "$out" '_redirects 已同步' "_redirects 同步输出"
   chk_contains "$out" 'VITE_API_URL=' ".env 写入 API 地址"
 
-  [ -f "$FRONTEND/_redirects" ]
-  chk $? "_redirects 已生成"
   [ -d "$FRONTEND/functions" ]
   chk $? "functions 目录已生成"
   [ ! -d "$FRONTEND/functions/functions" ]
@@ -208,6 +205,44 @@ else
   chk $? "绝对 URL 形态的 API 地址应被接受"
   # 跑回默认值，避免把测试用的地址留在工作区
   (cd "$REPO" && node "$SCRIPTS/prepare-pages.mjs" >/dev/null 2>&1)
+  echo
+
+  echo "=== 5b. 产物收尾（finalize-dist.mjs）==="
+  # _redirects / _headers 只有出现在构建产物里才会生效，这一步负责把它们放进去。
+  # 测试时若产物目录不存在就临时造一个，跑完再删掉，避免污染真实的构建产物。
+  OUT_DIR="$FRONTEND/out/renderer"
+  made_out=0
+  if [ ! -d "$OUT_DIR" ]; then
+    mkdir -p "$OUT_DIR"
+    made_out=1
+  fi
+  [ -f "$OUT_DIR/index.html" ] || echo '<!doctype html><title>placeholder</title>' >"$OUT_DIR/index.html"
+
+  out="$(cd "$REPO" && node "$SCRIPTS/finalize-dist.mjs" 2>&1)"
+  chk $? "finalize-dist.mjs 退出码 0"
+  chk_contains "$out" 'Pages 配置已进入产物' "Pages 配置复制输出"
+  chk_contains "$out" '产物自检通过' "产物自检输出"
+
+  [ -f "$OUT_DIR/_redirects" ]
+  chk $? "_redirects 进入产物"
+  [ -f "$OUT_DIR/_headers" ]
+  chk $? "_headers 进入产物"
+  [ -f "$OUT_DIR/version.json" ]
+  chk $? "version.json 已生成"
+  if grep -q '"commit"' "$OUT_DIR/version.json" 2>/dev/null; then
+    chk 0 "version.json 含提交号字段"
+  else
+    chk 1 "version.json 含提交号字段"
+  fi
+  if grep -q 'Cache-Control: no-cache' "$OUT_DIR/_headers" 2>/dev/null; then
+    chk 0 "version.json 未被 CDN 长缓存"
+  else
+    chk 1 "version.json 未被 CDN 长缓存"
+  fi
+
+  if [ "$made_out" = "1" ]; then
+    rm -rf "$FRONTEND/out"
+  fi
   echo
 
   echo "=== 6. 发布闸门：依赖校验失败必须中止在构建/部署之前 ==="

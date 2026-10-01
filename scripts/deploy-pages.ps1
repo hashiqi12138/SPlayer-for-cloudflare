@@ -191,6 +191,21 @@ if (-not (Test-Path $indexHtml)) {
 Write-Host "   📁 构建产物: $outputDir" -ForegroundColor Green
 Write-Host ""
 
+# ------------------------------------------------------------------
+# 产物收尾
+#
+# 把 frontend-config\_redirects、_headers 放进 out\renderer，并写入 version.json。
+# 必须在上传之前做：只有出现在产物里的东西才会真的生效
+# （_redirects 曾经被复制到前端项目根目录，而上传的只有 out\renderer，等于没配）。
+# ------------------------------------------------------------------
+Write-Host "🏷️  产物收尾（Pages 配置 + 版本戳）..." -ForegroundColor Yellow
+& node (Join-Path $ScriptDir "finalize-dist.mjs")
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "❌ 产物收尾失败" -ForegroundColor Red
+    exit 1
+}
+Write-Host ""
+
 # 部署到 Pages
 # 项目名与分支取自 deploy.config.json：
 #   分支留空 -> 部署到 production；填写分支名 -> 部署到该分支的 preview 别名。

@@ -116,6 +116,17 @@ log_ok "构建产物: out/renderer"
 echo
 
 # ------------------------------------------------------------
+# 产物收尾
+#
+# 把 frontend-config/_redirects、_headers 放进 out/renderer，并写入 version.json。
+# 必须在上传之前做：只有出现在产物里的东西才会真的生效
+# （_redirects 曾经被复制到前端项目根目录，而上传的只有 out/renderer，等于没配）。
+# ------------------------------------------------------------
+log_step "产物收尾（Pages 配置 + 版本戳）"
+node "$SCRIPT_DIR/finalize-dist.mjs"
+echo
+
+# ------------------------------------------------------------
 # 部署到 Pages
 #
 # 项目名与分支取自 deploy.config.json：

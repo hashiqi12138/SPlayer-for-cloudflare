@@ -85,6 +85,7 @@ npm run setup:worker-deps   # 安装 workers/api 自己的依赖（首次或依�
 npm run dev:api             # 本地起 API Worker（默认 8788）
 npm run build:api           # 由 ncm-source 重建 src/generated-routes.js
 npm run verify              # 仓库自检门禁（CI 跑的就是这条命令）
+npm run verify:full         # 上面 + 重建产物并与入库版本比对（发布前跑）
 npm test                    # 离线单元测试
 npm run test:api            # 联网接口测试（默认打本地 8788）
 npm run test:scripts        # 部署脚本自检
@@ -149,7 +150,11 @@ PowerShell 用 `-NonInteractive`，bash 用 `--non-interactive`，效果相同�
 ```bash
 ./scripts/deploy-pages.sh --non-interactive
 bash scripts/deploy-all.sh --mode=4 --non-interactive   # 非交互必须显式指定范围
+NON_INTERACTIVE=1 ./scripts/deploy-pages.sh             # 也可用环境变量
 ```
+
+> 注意：`npm run deploy:pages -- --non-interactive` 里的参数**不会**被转发
+> （npm 10 的行为），自动化场景请改用 `NON_INTERACTIVE=1` 环境变量。
 
 也可直接用 bash 入口（Windows 上需要 Git Bash / MSYS2 / WSL）：
 
@@ -184,6 +189,26 @@ DEPLOY_SHELL=bash node scripts/deploy.mjs pages   # 在 Windows 上强制走 bas
   `scripts/lib/common.sh` 通过 `MSYS2_ENV_CONV_EXCL` / `MSYS2_ARG_CONV_EXCL` 排除
   这些入口，`prepare-pages.mjs` 另有取值校验兜底。
 
+### 发布后如何确认线上版本
+
+每次部署前端时会把版本信息写进构建产物，部署完成后访问 `/version.json` 即可看到：
+
+```json
+{
+  "version": "1.0.0",
+  "commit": "…",
+  "commitShort": "…",
+  "branch": "dev",
+  "dirty": false,
+  "builtAt": "2026-10-01T…Z",
+  "deps": { "splayer-frontend": "…", "ncm-source": "…" },
+  "tests": { "passed": 66, "failed": 0 }
+}
+```
+
+`dirty: true` 表示打包时工作区有未提交改动——此时「线上对应哪个提交」并不精确，
+排查问题前要先留意这一点。回滚步骤见 [CONTRIBUTING.md](./CONTRIBUTING.md#回滚)。
+
 ### 地址等环境配置
 
 `deploy.config.json` 是**地址的唯一事实来源**（API Worker、代理 Worker、Pages 项目/分支/访问地址）。
@@ -208,4 +233,24 @@ DEPLOY_SHELL=bash node scripts/deploy.mjs pages   # 在 Windows 上强制走 bas
 | 文件上传类接口 | Workers 无临时文件系统，`ENABLE_FILE_UPLOAD=false` |
 | `xeapi` / `neapi` 加密 | 依赖 Node 版 X25519 ECDH，未实现，请求降级为 eapi |
 
-更细的适配现状与排查手段见 `workers/api/ADAPTATION_TODO.md`，部署细节见 `DEPLOY.md`。
+## 文档索引
+
+| 文档 | 内容 |
+|---|---|
+| 本文件 | 架构、依赖管理、测试分层、部署与配置 |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | 环境准备、上游补丁工作流、提交约定、发布与回滚、常见坑 |
+| [CHANGELOG.md](./CHANGELOG.md) | 版本变更记录 |
+| [DEPLOY.md](./DEPLOY.md) | 从零开始的部署步骤 |
+| `workers/api/ADAPTATION_TODO.md` | 接口适配现状与排查手段（更细的工程记录） |
+
+## 许可
+
+本项目是 [SPlayer](https://github.com/SPlayer-Dev/SPlayer)（**AGPL-3.0**）的
+Web / Cloudflare 移植工程，包含针对上游的补丁与部署适配代码，
+因此以 **AGPL-3.0-or-later** 发布，全文见 [LICENSE](./LICENSE)。
+
+后端依赖的 [api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced)
+为 **MIT**，以 submodule 形式引入，其许可证见 `workers/api/ncm-source/LICENSE`。
+
+按 AGPL-3.0 的要求，通过网络使用本服务的人有权获得对应源码——本仓库的部署方式
+（源码与构建脚本都在同一个仓库、产物可复现）正是为了满足这一点。

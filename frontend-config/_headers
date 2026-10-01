@@ -1,0 +1,12 @@
+# Cloudflare Pages 响应头
+#
+# 这个文件会被 scripts/finalize-dist.mjs 复制进构建产物根目录后随部署上传。
+# 放在这里而不是直接塞进 out/ ，是因为 out/ 是生成目录、会被下次构建覆盖。
+
+# 版本戳：必须是「本次部署」的值，不能被 CDN 缓存住
+/version.json
+  Cache-Control: no-cache
+
+# 构建产物带内容哈希，改名即换内容，可以放心长缓存
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
