@@ -61,8 +61,18 @@ const RESPONSE_HEADERS = [
   'last-modified',
 ];
 
-export function registerAudioProxy(app) {
+/**
+ * @param {import('express').Application} app
+ * @param {() => boolean} isEnabled 解锁总开关；关闭时不对外提供代理入口
+ */
+export function registerAudioProxy(app, isEnabled = () => true) {
   app.all(/^\/api\/unblock\/audio\/(.+)$/, async (req, res) => {
+    // 解锁关闭时不再提供音频代理，避免无人使用时仍暴露一个可被滥用的代理入口
+    if (!isEnabled()) {
+      res.status(503).json({ code: 503, msg: 'unblock disabled' });
+      return;
+    }
+
     const rest = req.params[0] || '';
     const slash = rest.indexOf('/');
     if (slash < 1) {

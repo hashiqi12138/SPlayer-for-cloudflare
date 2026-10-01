@@ -82,14 +82,33 @@ function buildDebugHeaders(query = {}) {
   return out;
 }
 
+/**
+ * 解锁功能总开关（wrangler.toml 的 ENABLE_UNBLOCK，默认 false）。
+ *
+ * 实测三大音源均按出口 IP 限制（酷我下发占位片段、波点 407、网易云 403），
+ * 在 Cloudflare 出口无法真正生效，因此默认关闭：前端不再尝试，
+ * 后端也不再对外提供音频代理入口。
+ *
+ * 若部署到中国大陆出口，把 ENABLE_UNBLOCK 改为 "true" 重新部署即可恢复，
+ * 无需改动任何代码。
+ */
+function isUnblockEnabled() {
+  return String(globalThis.CF_ENV?.ENABLE_UNBLOCK ?? 'false') === 'true';
+}
+
 export function registerUnblockRoutes(app) {
   // 音频代理：把音源直链转成同源路径并补 CORS 头（见 audio-proxy.js）
-  registerAudioProxy(app);
+  registerAudioProxy(app, isUnblockEnabled);
 
   // 把「总是返回 {code, url}」的语义固化下来，避免异常穿透成 500。
   // 额外附带 reason（失败原因）与 source，前端契约只认 code/url，
   // 多出的字段仅用于运维排查与测试分类。
   const handler = (source, fn) => async (req, res) => {
+    if (!isUnblockEnabled()) {
+      res.status(200).json({ code: 404, url: null, reason: 'disabled', source });
+      return;
+    }
+
     const query = { ...req.query, ...req.body };
     try {
       const result = await fn(query, buildMatchInfo(query));
@@ -138,7 +157,7 @@ export function registerUnblockRoutes(app) {
   };
 
   app.get('/api/unblock', (_req, res) => {
-    res.json(UNBLOCK_INFO);
+    res.json({ ...UNBLOCK_INFO, enabled: isUnblockEnabled() });
   });
 
   // 网易云按歌曲 ID 走聚合接口

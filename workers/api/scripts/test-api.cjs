@@ -318,6 +318,9 @@ async function runTests() {
       'region-locked',
       'stub-audio',
       'timeout',
+      // 部署侧主动关闭了解锁（wrangler.toml 的 ENABLE_UNBLOCK=false），
+      // 属配置选择而非实现缺陷，同样归入受限
+      'disabled',
     ]);
 
     const evalUnblockResult = (j, { allowEnvBlock = false, expectBlocked = false } = {}) => {
@@ -434,13 +437,19 @@ async function runTests() {
       {
         name: '解锁-空关键词',
         path: '/api/unblock/kuwo?keyword=',
-        verify: (j) =>
-          j.code === 404 && j.url === null && j.reason === 'empty-keyword'
-            ? { pass: true }
-            : {
-                pass: false,
-                msg: `期望 404/empty-keyword，实际 code=${j.code} reason=${j.reason}`,
-              },
+        verify: (j) => {
+          if (j.code === 404 && j.url === null && j.reason === 'empty-keyword') {
+            return { pass: true };
+          }
+          // 部署侧关闭解锁时，参数校验会被总开关短路，属预期行为
+          if (j.reason === 'disabled') {
+            return { pass: true, blocked: true, msg: '解锁已关闭' };
+          }
+          return {
+            pass: false,
+            msg: `期望 404/empty-keyword，实际 code=${j.code} reason=${j.reason}`,
+          };
+        },
       },
     ];
 
