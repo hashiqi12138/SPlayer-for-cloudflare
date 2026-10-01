@@ -106,9 +106,15 @@ git tag -a v1.1.0 -m "v1.1.0"
 git push --follow-tags   # 配置了远程仓库之后
 ```
 
-> 前端有两个环境：**正式**（`npm run deploy:pages`，不带 `--branch`）与**预览**
+> 前端有两个环境：**正式**（`npm run deploy:pages`）与**预览**
 > （`bash scripts/deploy-pages.sh --preview`）。发布正式版本时务必确认跑的是
 > 不带 `--preview` 的那条 —— 预览环境发得再对，正式环境也不会更新。
+>
+> 两条路径都会显式传 `--branch`：正式用 `deploy.config.json` 里的 `pagesProdBranch`
+> （必须与 Pages 项目的 Production branch 一致），预览用 `pagesPreviewBranch`。
+> 注意正式**不能**靠「不传 `--branch`」实现 —— wrangler 会从当前 git 仓库自动探测
+> 分支，而部署是在子模块目录里跑的（detached HEAD），探测结果是 `HEAD`，
+> 那样发出来的是一个叫 HEAD 的预览部署。
 
 `version.json` 里会带上 `dirty` 字段：如果打包时工作区有未提交改动，
 它会显示 `true`——这时「线上对应哪个提交」就不精确了，**不要**据此打 tag。
@@ -157,7 +163,7 @@ Pages 的 Rollback 按部署生效：正式与预览各占一条部署记录，�
 | 部署时报 wrangler 版本和预期不符 | 部署只使用 `package-lock.json` 锁定的版本；缺依赖会提示 `npm ci`，不要用 `npx wrangler` 手动装 |
 | `npm ci` 报 EBUSY / 目录被占用 | 有残留的 `wrangler dev`（`workerd`）进程占着 `node_modules`，先结束它 |
 | `npm run x -- --flag` 里参数没生效 | npm 10 不会把 `--` 之后的参数转发给脚本，会静默按默认值跑。需要传参就给脚本单独起一个名字（如 `verify:full`），或用环境变量 |
-| Pages 显示部署成功，但正式域名还是旧内容 | 这次部署带了 `--branch=<别名>`，进的是**预览环境**。正式与预览是两条独立的部署记录。发正式不要带 `--preview` / `--branch` |
+| Pages 显示部署成功，但正式域名还是旧内容 | 这次部署的分支名不等于项目的 Production branch，进的是**预览环境**。正式与预览是两条独立的部署记录。检查 `deploy.config.json` 的 `pagesProdBranch` 是否与 Pages 项目设置里的 Production branch 一致；注意「不传 `--branch`」也不行（wrangler 会探测成 `HEAD`） |
 
 ## 代码风格
 

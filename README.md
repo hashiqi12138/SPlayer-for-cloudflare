@@ -148,20 +148,29 @@ macOS / Linux / CI 走 `scripts/deploy-*.sh`。两套脚本流程完全一致，
 
 ### 发布到哪里（正式 / 预览）
 
-**前端 Pages 的目标是显式选择的，不藏在配置默认值里**：
+**前端 Pages 的目标是显式选择的，而且要显式传分支名**：
 
-| 目标 | 命令 | 线上位置 |
-|---|---|---|
-| 正式环境 (production) | `npm run deploy:pages`（不加参数）<br>或 `.\scripts\deploy-pages.ps1` | `pagesProdUrl`，即项目主域名 |
-| 预览环境 | `bash scripts/deploy-pages.sh --preview`<br>或 `.\scripts\deploy-pages.ps1 -Preview` | `pagesPreviewBranch` 分支别名，即 `pagesPreviewUrl` |
+| 目标 | 命令 | 分支（`--branch`） | 线上位置 |
+|---|---|---|---|
+| 正式环境 (production) | `npm run deploy:pages`<br>或 `.\scripts\deploy-pages.ps1` | `pagesProdBranch`，须与 Pages 项目的 Production branch 一致 | `pagesProdUrl` |
+| 预览环境 | `bash scripts/deploy-pages.sh --preview`<br>或 `.\scripts\deploy-pages.ps1 -Preview` | `pagesPreviewBranch` | `pagesPreviewUrl` |
 
-实现上：发正式时**不给** `wrangler pages deploy` 加 `--branch`，Pages 视为 production；
-发预览时才加 `--branch=<pagesPreviewBranch>`。配置里因此拆成两组键
-（`pagesProdUrl` / `pagesPreviewBranch` + `pagesPreviewUrl`）。
+Cloudflare 判断正式/预览的依据是**分支名是否等于项目设置的 Production branch**，
+所以两侧都得传 `--branch`。这里踩过两个坑，都写进了注释与自检：
 
-> 这里踩过一次：早先配置只有一组 `pagesBranch: "dev"`，脚本每次都带 `--branch=dev`，
-> 于是**所有部署都进预览环境，正式环境一直是空的**。拆开并让默认值指向正式之后，
-> 「发到哪」由命令行决定，不由配置碰巧写了什么决定。
+> **坑一：靠「不传 `--branch`」发正式。** 不传时 wrangler 会从当前 git 仓库自动探测
+> 分支，而部署是在子模块目录 `splayer-frontend` 里执行的，子模块处于 detached HEAD，
+> 探测结果是 `HEAD` —— 于是脚本打印「目标: 正式环境 (production)」，Pages 控制台里
+> 却是 `Preview / Branch: HEAD`，正式域名一直没有内容。
+>
+> **坑二：配置里写死一个分支。** 早先只有一组 `pagesBranch: "dev"`，脚本无条件带上
+> `--branch=dev`，于是每次部署都进预览环境，正式环境从未有过部署。现在拆成
+> `pagesProdBranch`（**必需项**）+ `pagesPreviewBranch`，缺了直接报错而不是猜默认值。
+
+发布时会一并显式传 `--commit-hash` / `--commit-message` / `--commit-dirty`：
+wrangler 默认从**执行目录**（子模块）取 git 信息，控制台上会显示上游 SPlayer 的提交，
+与 `/version.json` 里的本仓库提交号对不上。判断口径由 `scripts/lib/git-meta.mjs`
+与 `finalize-dist.mjs` 共用，保证两处说法一致。
 
 两个 Worker **没有预览环境**（Worker 不存在分支别名），因此
 `--preview` / `-Preview` 会被 worker 脚本明确拒绝，而不是静默忽略 ——
@@ -202,6 +211,7 @@ DEPLOY_SHELL=bash node scripts/deploy.mjs pages   # 在 Windows 上强制走 bas
 | `scripts/prepare-pages.mjs` | **两套脚本共用**：读配置、同步 `functions/` 并注入地址、同步 `_redirects`、写 `.env` |
 | `scripts/deps.mjs` | 依赖 pin + 补丁 + 单测的发布闸门 |
 | `scripts/get-config.mjs` | 供 bash 读取 `deploy.config.json` 的单个键 |
+| `scripts/lib/git-meta.mjs` + `scripts/git-meta.mjs` | **两套脚本与 `finalize-dist.mjs` 共用**：提交号 / 工作区是否真的脏 |
 | `scripts/deploy.mjs` | `npm run deploy:*` 的平台分派入口 |
 | `scripts/tests/deploy-scripts.test.sh` | 部署脚本自检（`npm run test:scripts`） |
 

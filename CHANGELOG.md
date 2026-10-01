@@ -9,12 +9,22 @@
 
 ### 修复
 
-- **前端所有部署都进了预览环境，正式环境从未有过部署**：`deploy.config.json` 里只有
-  一组 `pagesBranch: "dev"` / `pagesUrl`，部署脚本无条件给 `wrangler pages deploy`
-  带上 `--branch=dev`。结果是 Cloudflare 上该项目全部是 Preview 部署，
-  正式域名 `splayer-dvj.pages.dev` 一直没有内容 —— 而脚本每次都打印「部署完成」，
-  从输出上完全看不出来。现在发布目标是**命令行显式选择**的：不带参数发正式
-  （不加 `--branch`，Pages 视为 production），`--preview` 才发预览分支别名。
+- **「发正式」实际发进了预览环境**：Cloudflare Pages 判断正式/预览的依据是
+  「分支名是否等于项目设置的 Production branch」，而不是「有没有传 `--branch`」。
+  原先正式路径靠**不传** `--branch` 实现，但 wrangler 在不传时会从当前 git 仓库
+  自动探测分支 —— 部署是在子模块目录 `splayer-frontend` 里执行的，子模块处于
+  detached HEAD，探测结果是 `HEAD`。于是脚本打印「目标: 正式环境 (production)」，
+  Pages 控制台里却是 `Preview / Branch: HEAD`，正式域名一直没有内容。
+  现在两侧都显式解析并传 `--branch`：正式取 `pagesProdBranch`，预览取
+  `pagesPreviewBranch`；`pagesProdBranch` 是**必需配置项**，缺了直接报错，
+  不给「看起来合理」的默认值（猜错时同样会静静落到预览环境，一样看不出来）。
+  分支名在构建之前就校验，避免等几分钟构建跑完才发现配置没填。
+- **Pages 控制台上的提交信息指的是上游 SPlayer 的提交**：wrangler 默认从
+  **执行目录**（子模块 `splayer-frontend`）取 git 信息，与 `/version.json` 里的
+  本仓库提交号对不上，核对线上版本时会白跑一趟。现在显式传
+  `--commit-hash` / `--commit-message` / `--commit-dirty`，控制台与产物说法一致。
+  同时消掉每次多打印的一行 `fatal: bad object <sha>` —— 那是 wrangler 拿本仓库的
+  提交号去子模块的 git 库里反查标题所致（部署本身不受影响，但看着像出错了）。
 - **`/version.json` 的 `dirty` 字段实际上永远是 `true`**，这让它失去意义，
   而它正是「线上跑的是哪个提交」的核对依据。它原先用 `git status --porcelain`
   是否为空来判断，而这个判断被两类长期噪音占据：一是**子模块**
@@ -33,9 +43,10 @@
 
 ### 变更
 
-- **配置拆分**：`pagesBranch` / `pagesUrl` → `pagesProdUrl`、
-  `pagesPreviewBranch`、`pagesPreviewUrl` 三组键，正式与预览的地址各自独立，
-  不再共用一个「碰巧写了什么就发到哪」的值。`verify` 的取值校验同步更新。
+- **配置拆分**：`pagesBranch` / `pagesUrl` → `pagesProdBranch`（必需）、
+  `pagesProdUrl`、`pagesPreviewBranch`、`pagesPreviewUrl`，正式与预览的分支和地址
+  各自独立，不再共用一个「碰巧写了什么就发到哪」的值。`verify` 的取值校验同步更新，
+  并新增一条「正式与预览的分支名不能相同」——相同则「发正式」等于又发了一次预览。
 - **worker 脚本明确拒绝 `--preview`**（bash 与 PowerShell 两侧）：Worker 不存在
   分支别名、只有一个正式环境。静默忽略会让使用者以为「我发的是预览」，
   实际却改了线上 worker；直接报错把误解挡在部署之前。
@@ -46,11 +57,26 @@
 
 ### 新增
 
-- 部署脚本自检增加「部署目标」一节：`--help` 是否列出 `--preview`、默认目标是正式、
-  `--preview` 能切到预览、`--prod` 能切回正式、两个 worker 脚本拒绝 `--preview`、
-  以及 `--preview` 配前端时不被误拦。
+- **`scripts/lib/git-meta.mjs` + `scripts/git-meta.mjs`**：提交号与「工作区是否真的脏」
+  的统一判断口径，由 `/version.json` 的写入方（`finalize-dist.mjs`）与部署时传给
+  wrangler 的 `--commit-*` 共用。两边各写一份的话，只要口径不同，
+  Pages 控制台与 `/version.json` 就会互相矛盾 —— 而这两处正是核对线上版本的依据。
+- 部署脚本自检增加「部署目标」与「发布分支」两节：`--help` 是否列出 `--preview`、
+  默认目标是正式、`--preview` 能切到预览、`--prod` 能切回正式、两个 worker 脚本拒绝
+  `--preview`、`--preview` 配前端时不被误拦，以及正式/预览解析出的分支名不同。
 - 文档补齐「正式 / 预览」两条路径：地址对照表、命令、以及**回滚是分环境的**
   （Pages 的 Rollback 按部署生效，正式与预览互不影响）。
+
+### 首次正式发布
+
+`https://splayer-dvj.pages.dev` 此前从未有过部署（此前全部落进预览环境）。
+1.0.4 完成第一次正式发布并通过线上核对：
+
+| 检查 | 结果 |
+|---|---|
+| `/version.json` | `1.0.4 @ d62a946`，`dirty: false` |
+| Pages 控制台 | Environment `production`，Branch `main`，提交号与本仓库一致 |
+| `/api/netease/search`（经 Pages Functions 转发到 API Worker） | HTTP 200，业务码 200 |
 
 ## [1.0.3] - 2026-10-01
 

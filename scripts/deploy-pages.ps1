@@ -258,8 +258,12 @@ if ($Preview) {
 # 提交信息也要显式传：wrangler 默认从**执行目录**（子模块 splayer-frontend）取 git
 # 信息，Pages 控制台上显示的会是上游 SPlayer 的提交，与 /version.json 里的本仓库
 # 提交号对不上，核对线上版本时会白跑一趟。
+# --commit-message 同样要传：wrangler 拿到 --commit-hash 后会用子模块的 git 库去
+# 反查标题，而本仓库的提交在子模块里不存在，于是每次多打印一行
+# `fatal: bad object <sha>`（部署不受影响，但看着像出错了）。
 # 判断口径走 scripts/git-meta.mjs，与 finalize-dist.mjs 写进 version.json 的完全一致。
 $commitHash = (& node (Join-Path $ScriptDir "git-meta.mjs") hash 2>$null | Out-String).Trim()
+$commitSubject = (& node (Join-Path $ScriptDir "git-meta.mjs") subject 2>$null | Out-String).Trim()
 $commitDirty = (& node (Join-Path $ScriptDir "git-meta.mjs") dirty 2>$null | Out-String).Trim()
 
 Write-Host "🚀 部署到 Cloudflare Pages..." -ForegroundColor Yellow
@@ -279,6 +283,9 @@ $deployArgs = @(
 )
 if (-not [string]::IsNullOrWhiteSpace($commitHash)) {
     $deployArgs += "--commit-hash=$commitHash"
+}
+if (-not [string]::IsNullOrWhiteSpace($commitSubject)) {
+    $deployArgs += "--commit-message=$commitSubject"
 }
 if (-not [string]::IsNullOrWhiteSpace($commitDirty)) {
     $deployArgs += "--commit-dirty=$commitDirty"

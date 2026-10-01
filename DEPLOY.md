@@ -41,14 +41,17 @@
 
 ### 正式环境与预览环境
 
-Cloudflare Pages 用**分支别名**区分环境，两个环境的产物完全独立：
+Cloudflare Pages 用**分支名**区分环境，两个环境的产物完全独立。
+判断依据是「分支名是否等于项目设置里的 Production branch」，因此**两侧都要显式传
+`--branch`**（不能靠「不传」来发正式）：
 
-| 目标 | 出现在 Pages 的哪个环境 | 线上地址 |
-|------|------------------------|---------|
-| 正式 (production) | Production 部署（不加 `--branch`） | `pagesProdUrl` |
-| 预览 (preview) | `pagesPreviewBranch` 分支的别名部署 | `pagesPreviewUrl` |
+| 目标 | `--branch` 取值 | 出现在 Pages 的哪个环境 | 线上地址 |
+|------|----------------|------------------------|---------|
+| 正式 (production) | `pagesProdBranch`（须等于项目 Production branch） | Production 部署 | `pagesProdUrl` |
+| 预览 (preview) | `pagesPreviewBranch` | 该分支的别名部署 | `pagesPreviewUrl` |
 
-`deploy.config.json` 里对应三组键：`pagesProdUrl`、`pagesPreviewBranch`、`pagesPreviewUrl`。
+`deploy.config.json` 里对应四组键：`pagesProdBranch`（**必需**）、`pagesProdUrl`、
+`pagesPreviewBranch`、`pagesPreviewUrl`。
 
 ```bash
 npm run deploy:pages                       # 发正式（默认）
@@ -57,9 +60,12 @@ bash scripts/deploy-pages.sh --preview     # 发预览
 
 两个 Worker 只有正式环境，`--preview` / `-Preview` 会被拒绝。
 
-> 早先配置里只有一组 `pagesBranch: "dev"`，部署脚本无条件带 `--branch=dev`，
-> 结果是**每次部署都进预览环境，正式环境从未有过部署**。现在目标是命令行显式选择，
-> 默认发正式。
+> 这里踩过两个坑，都属于「脚本说成功、环境不对」：
+> 一是靠**不传** `--branch` 发正式 —— wrangler 会从当前 git 仓库自动探测分支，
+> 而部署是在子模块目录里跑的，子模块是 detached HEAD，探测结果是 `HEAD`，
+> 于是正式部署变成了一个叫 HEAD 的预览部署。
+> 二是配置里只有一个 `pagesBranch: "dev"`，脚本无条件带上它，
+> 于是**每次部署都进预览环境，正式环境从未有过部署**。
 
 API Worker 已实现 eapi / weapi / api / linuxapi 加密，413 个接口中 385 个自动转译上线，其余 28 个依赖 `qrcode`、`unblockmusic-utils`、文件上传等 Workers 不兼容模块，已单独处理或降级。
 
@@ -177,13 +183,15 @@ pnpm build
 npx wrangler pages deploy out/renderer --project-name=splayer
 ```
 
-> **不要**在这里手写 `--branch`。加 `--branch=xxx` 会把这次部署标记成**预览**，
-> 正式环境不会更新（早先就是这么踩的坑）。上面这条命令不带 `--branch`，
-> 因此落到正式环境。
+> 上面这条命令是**手写**的简化版，只用于理解原理。真正发布请用
+> `npm run deploy:pages`：它会显式传 `--branch=<pagesProdBranch>`，
+> 并完成依赖闸门、Functions 注入、`_redirects`/`_headers` 收尾与版本戳写入 ——
+> 少任何一步，线上都可能是「看着部署成功、其实缺东西」。
 >
-> 手动流程仅用于理解原理；实际发布请用 `npm run deploy:pages`，它同时完成了
-> 依赖闸门、Functions 注入、`_redirects`/`_headers` 收尾与版本戳写入 —— 少任何一步，
-> 线上都可能是「看着部署成功、其实缺东西」。
+> 特别注意 `--branch`：**不加它并不等于发正式**。wrangler 不传时会从当前 git 仓库
+> 自动探测分支，而部署是在子模块目录 `splayer-frontend` 里执行的，子模块处于
+> detached HEAD，探测结果是 `HEAD` —— 这次部署就变成了一个叫 HEAD 的**预览**部署，
+> 正式环境不会更新。手写命令时请补上 `--branch=<项目 Production branch>`。
 
 ### 第五步：配置 Pages 路由（将 API 请求转发到 Worker）
 
@@ -240,8 +248,9 @@ splayer-cloudflare/
 │   ├── verify.mjs               # 仓库自检门禁（CI 与本地同一条命令）
 │   ├── prepare-pages.mjs        # 构建前的资源准备（Functions 注入 / .env）
 │   ├── finalize-dist.mjs        # 构建后的产物收尾（_redirects/_headers + version.json）
+│   ├── git-meta.mjs             # 提交号 / 工作区是否真的脏（部署脚本取用）
 │   ├── deps.mjs                 # 依赖 pin / 补丁 / 单测发布闸门
-│   ├── lib/                     # 共享模块（配置、bash 公共库）
+│   ├── lib/                     # 共享模块（配置、git 状态、bash 公共库）
 │   └── tests/                   # 部署脚本自检
 ├── frontend-config/
 │   ├── _redirects               # SPA 路由重定向（会被放进构建产物）

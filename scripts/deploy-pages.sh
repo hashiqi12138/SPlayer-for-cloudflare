@@ -170,7 +170,11 @@ fi
 # 提交信息也要显式传：wrangler 默认从**执行目录**（子模块 splayer-frontend）取 git
 # 信息，Pages 控制台上显示的会是上游 SPlayer 的提交，与 /version.json 里的本仓库
 # 提交号对不上，核对线上版本时会白跑一趟。
+# --commit-message 同样要传：wrangler 拿到 --commit-hash 后会用子模块的 git 库去
+# 反查标题，而本仓库的提交在子模块里不存在，于是每次多打印一行
+# `fatal: bad object <sha>`（部署不受影响，但看着像出错了）。
 COMMIT_HASH="$(git_meta hash || true)"
+COMMIT_SUBJECT="$(git_meta subject || true)"
 COMMIT_DIRTY="$(git_meta dirty || true)"
 
 log_step "部署到 Cloudflare Pages"
@@ -186,6 +190,9 @@ echo
 DEPLOY_ARGS=(--project-name="$PROJECT_NAME" --branch="$BRANCH")
 if [ -n "$COMMIT_HASH" ]; then
   DEPLOY_ARGS+=(--commit-hash="$COMMIT_HASH")
+fi
+if [ -n "$COMMIT_SUBJECT" ]; then
+  DEPLOY_ARGS+=(--commit-message="$COMMIT_SUBJECT")
 fi
 if [ -n "$COMMIT_DIRTY" ]; then
   DEPLOY_ARGS+=(--commit-dirty="$COMMIT_DIRTY")

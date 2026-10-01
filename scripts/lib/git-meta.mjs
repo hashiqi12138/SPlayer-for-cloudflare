@@ -38,6 +38,19 @@ export function commitHash(root) {
 }
 
 /**
+ * 当前 HEAD 的提交标题（单行）
+ *
+ * 用途：作为 `wrangler pages deploy --commit-message` 传过去。
+ * 为什么要显式传：wrangler 拿到 `--commit-hash` 后会用**它自己所在目录**（部署时是
+ * 子模块 splayer-frontend）去 `git show` 这个提交以取标题 —— 而本仓库的提交在子模块
+ * 里并不存在，于是每次都打印一行 `fatal: bad object <sha>`。部署本身不受影响
+ * （退出码仍是 0），但会让人误以为出了问题。这里把标题直接喂给它，就不必再查库。
+ */
+export function commitSubject(root) {
+  return git(root, ['log', '-1', '--pretty=%s']) || null
+}
+
+/**
  * 工作区是否「真的」有未提交改动
  *
  * 未跟踪文件也算：新文件没提交，同样说不清线上对应哪个提交。
