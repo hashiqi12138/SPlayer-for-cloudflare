@@ -108,18 +108,62 @@ npm run deploy:proxy   # 部署音频代理 Worker
 npm run deploy:all     # 交互式选择
 ```
 
-部署脚本支持 `-NonInteractive`，跳过所有询问、全部取 `deploy.config.json`
-的配置值，便于自动化：
+`npm run deploy:*` 会按平台自动分派：Windows 走 `scripts/deploy-*.ps1`，
+macOS / Linux / CI 走 `scripts/deploy-*.sh`。两套脚本流程完全一致，共享易错环节的实现
+（见下文「脚本分层」）。
+
+### 跳过交互（自动化）
+
+PowerShell 用 `-NonInteractive`，bash 用 `--non-interactive`，效果相同：全部取
+`deploy.config.json` 的配置值，不再询问任何问题。
 
 ```powershell
 .\scripts\deploy-pages.ps1 -NonInteractive
 ```
 
+```bash
+./scripts/deploy-pages.sh --non-interactive
+bash scripts/deploy-all.sh --mode=4 --non-interactive   # 非交互必须显式指定范围
+```
+
+也可直接用 bash 入口（Windows 上需要 Git Bash / MSYS2 / WSL）：
+
+```bash
+npm run deploy:pages:bash
+DEPLOY_SHELL=bash node scripts/deploy.mjs pages   # 在 Windows 上强制走 bash 实现
+```
+
+### 脚本分层
+
+| 文件 | 职责 |
+|---|---|
+| `scripts/deploy-*.ps1` / `scripts/deploy-*.sh` | 各平台的部署流程（前置检查 → 闸门 → 构建 → 部署） |
+| `scripts/lib/common.sh` | bash 侧公共库：日志、前置检查、交互、路径转换防护 |
+| `scripts/prepare-pages.mjs` | **两套脚本共用**：读配置、同步 `functions/` 并注入地址、同步 `_redirects`、写 `.env` |
+| `scripts/deps.mjs` | 依赖 pin + 补丁 + 单测的发布闸门 |
+| `scripts/get-config.mjs` | 供 bash 读取 `deploy.config.json` 的单个键 |
+| `scripts/deploy.mjs` | `npm run deploy:*` 的平台分派入口 |
+
+之所以把「准备部署资源」抽成 Node 共享模块而不是两边各写一份：目录复制方式、
+占位符注入这类细节最容易被写出差异（历史上就出过 `Copy-Item` 复制目录嵌套、
+生成垃圾路由的问题），一份实现才谈得上行为一致。
+
+### bash 脚本的两个硬约束
+
+- **必须 LF 换行**：`.gitattributes` 已把 `*.sh`、`*.patch` 固定为 `text eol=lf`。
+  Windows 上 `core.autocrlf=true` 会把文本文件检出成 CRLF，行尾的 `\r` 会被 bash
+  当成命令的一部分，报 `$'\r': command not found`。CI 中有校验防止回退。
+- **MSYS2 / Git Bash 会改写「像路径」的值**：实测 `API_URL=/api/netease` 会被改写成
+  `E:/build-tool/msys2/api/netease`，前端会因此所有接口 404 且**不报错**。
+  `scripts/lib/common.sh` 通过 `MSYS2_ENV_CONV_EXCL` / `MSYS2_ARG_CONV_EXCL` 排除
+  这些入口，`prepare-pages.mjs` 另有取值校验兜底。
+
 ### 地址等环境配置
 
 `deploy.config.json` 是**地址的唯一事实来源**（API Worker、代理 Worker、Pages 项目/分支/访问地址）。
 `frontend-config/functions/` 里用 `__API_WORKER_URL__` / `__PROXY_WORKER_URL__` 占位，
-部署时由 `deploy-pages.ps1` 按配置注入；探针与测试脚本则通过 `workers/api/scripts/config.cjs` 读取。
+部署时由部署脚本按配置注入（共用 `scripts/prepare-pages.mjs`）；
+探针与测试脚本则通过 `workers/api/scripts/config.cjs` 读取。
 需要换环境（例如换账号、换域名）时只改这一个文件。
 
 ### PowerShell 脚本必须以 UTF-8 BOM 保存

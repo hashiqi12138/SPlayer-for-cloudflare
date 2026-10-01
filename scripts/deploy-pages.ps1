@@ -14,7 +14,6 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..")
 $FrontendDir = Join-Path $ProjectRoot "splayer-frontend"
-$ConfigDir = Join-Path $ProjectRoot "frontend-config"
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  🎨 部署 SPlayer 前端到 Cloudflare Pages" -ForegroundColor Cyan
@@ -63,27 +62,6 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host ""
 
-# 配置环境变量
-$envFile = Join-Path $FrontendDir ".env"
-$envExample = Join-Path $FrontendDir ".env.example"
-
-if (-not (Test-Path $envFile)) {
-    Write-Host "⚙️  配置环境变量..." -ForegroundColor Yellow
-    
-    if (Test-Path $envExample) {
-        Copy-Item $envExample $envFile
-    } else {
-        Set-Content $envFile @"
-VITE_WEB_PORT=14558
-VITE_SERVER_PORT=25884
-VITE_API_URL=/api/netease
-"@
-    }
-    
-    Write-Host "   ✅ .env 文件已创建" -ForegroundColor Green
-    Write-Host ""
-}
-
 # ------------------------------------------------------------------
 # 载入部署配置（deploy.config.json 为唯一事实来源）
 # ------------------------------------------------------------------
@@ -102,42 +80,6 @@ if (-not $deployConfig.apiWorkerUrl -or -not $deployConfig.proxyWorkerUrl) {
     exit 1
 }
 
-# 复制 _redirects
-$redirectsSrc = Join-Path $ConfigDir "_redirects"
-$redirectsDest = Join-Path $FrontendDir "_redirects"
-Copy-Item $redirectsSrc $redirectsDest -Force
-
-# 复制 Pages Functions，并把占位符替换成配置里的实际地址。
-# frontend-config\functions 是模板（唯一事实来源），地址只在 deploy.config.json 维护。
-$functionsSrc = Join-Path $ConfigDir "functions"
-$functionsDest = Join-Path $FrontendDir "functions"
-if (Test-Path $functionsSrc) {
-    # 必须先删掉目标目录再复制：Copy-Item 到「已存在的目录」会把源目录整个塞进去，
-    # 生成 functions\functions\... 这样的嵌套副本，部署后多出一批无用路由。
-    if (Test-Path $functionsDest) {
-        Remove-Item $functionsDest -Recurse -Force
-    }
-    Copy-Item $functionsSrc $functionsDest -Recurse -Force
-
-    $patched = 0
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    Get-ChildItem -Path $functionsDest -Recurse -File -Filter *.js | ForEach-Object {
-        # 用 .NET 文件 API 读写：Get-Content -Raw 在 ForEach-Object 内会报
-        # "parameter cannot be found: Raw"（本环境实测），Set-Content -Encoding UTF8
-        # 又会写入 BOM。WriteAllText 配合无 BOM 的 UTF8 更可控。
-        $text = [System.IO.File]::ReadAllText($_.FullName)
-        $new = $text.Replace('__API_WORKER_URL__', $deployConfig.apiWorkerUrl).
-                     Replace('__PROXY_WORKER_URL__', $deployConfig.proxyWorkerUrl)
-        if ($new -ne $text) {
-            [System.IO.File]::WriteAllText($_.FullName, $new, $utf8NoBom)
-            $patched++
-        }
-    }
-    Write-Host "   ✅ Pages Functions 已同步（注入地址 $patched 个文件）" -ForegroundColor Green
-}
-Write-Host "📄 _redirects 配置已复制" -ForegroundColor Green
-Write-Host ""
-
 # API 地址：默认走相对路径，由 Pages Functions 转发。
 # -NonInteractive 时不再询问，直接取默认值。
 if ($NonInteractive) {
@@ -155,14 +97,24 @@ if ($NonInteractive) {
     }
 }
 
-# 更新 .env 中的 API 地址
-$envContent = Get-Content $envFile -Raw
-if ($envContent -match "VITE_API_URL\s*=\s*.*") {
-    $envContent = $envContent -replace "VITE_API_URL\s*=\s*.*", "VITE_API_URL=$apiUrl"
-} else {
-    $envContent += "`nVITE_API_URL=$apiUrl`n"
+# ------------------------------------------------------------------
+# 准备部署资源：_redirects、Pages Functions（注入真实地址）、.env
+#
+# 这段逻辑与 bash 版共用同一个 Node 实现（scripts/prepare-pages.mjs）。
+# 之所以不在这里重写一遍：目录复制方式、占位符注入这类细节两边各写一份
+# 极易逐渐跑偏（历史上就出过 Copy-Item 复制目录嵌套、生成垃圾路由的问题）。
+#
+# 走环境变量而不是命令行参数传 API 地址：bash 侧 MSYS2/Git Bash 会对形似
+# 路径的参数做路径转换，/api/netease 可能被改写成 C:\...\api\netease；
+# 统一用环境变量，两侧行为一致。
+# ------------------------------------------------------------------
+Write-Host "⚙️  准备部署资源..." -ForegroundColor Yellow
+$env:API_URL = $apiUrl
+& node (Join-Path $ScriptDir "prepare-pages.mjs")
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "❌ 部署资源准备失败" -ForegroundColor Red
+    exit 1
 }
-Set-Content $envFile $envContent -NoNewline
 
 # ------------------------------------------------------------------
 # 关于前端源码补丁
@@ -172,7 +124,6 @@ Set-Content $envFile $envContent -NoNewline
 # 补丁状态已在脚本开头通过 `deps.mjs verify-deploy` 校验，未应用则中止部署。
 # 补丁文件：patches/splayer-frontend.patch
 # ------------------------------------------------------------------
-Write-Host "   ✅ API 地址已设置为: $apiUrl" -ForegroundColor Green
 Write-Host ""
 
 # 安装依赖

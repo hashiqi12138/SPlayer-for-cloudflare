@@ -16,10 +16,14 @@
     "test:api": "node workers/api/scripts/test-api.cjs",
     "dev:proxy": "cd workers/music-proxy && npx wrangler dev",
     "dev:api": "cd workers/api && npx wrangler dev",
-    "deploy:proxy": "powershell -ExecutionPolicy Bypass -File scripts/deploy-proxy-worker.ps1",
-    "deploy:api": "powershell -ExecutionPolicy Bypass -File scripts/deploy-api-worker.ps1",
-    "deploy:pages": "powershell -ExecutionPolicy Bypass -File scripts/deploy-pages.ps1",
-    "deploy:all": "powershell -ExecutionPolicy Bypass -File scripts/deploy-all.ps1"
+    "deploy:proxy": "node scripts/deploy.mjs proxy",
+    "deploy:api": "node scripts/deploy.mjs api",
+    "deploy:pages": "node scripts/deploy.mjs pages",
+    "deploy:all": "node scripts/deploy.mjs all",
+    "deploy:proxy:bash": "bash scripts/deploy-proxy-worker.sh",
+    "deploy:api:bash": "bash scripts/deploy-api-worker.sh",
+    "deploy:pages:bash": "bash scripts/deploy-pages.sh",
+    "deploy:all:bash": "bash scripts/deploy-all.sh"
   },
   "devDependencies": {
     "wrangler": "^4.144.0"
