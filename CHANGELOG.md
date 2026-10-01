@@ -43,6 +43,8 @@
 - **CI**：Linux 与 Windows 双平台；并发取消、超时、npm 缓存、dependabot
 - **文档**：README（架构 / 依赖 / 测试 / 部署）、DEPLOY.md（含回滚步骤）、
   CONTRIBUTING.md（协作与发布流程）、AGPL-3.0 LICENSE
+- **排查脚本归类**：一次性排查脚本移入 `workers/api/scripts/probes/` 并加索引，
+  与构建/测试链路脚本区分开
 
 ### 修复
 
@@ -53,6 +55,10 @@
 - `Copy-Item` 复制目录导致 `functions/functions/...` 嵌套，线上多出垃圾路由
 - 全仓库文本统一 LF，消除 `core.autocrlf` 造成的「假改动」
 - 24 个生成的测试报告从版本控制中移除（`.gitignore` 已忽略但仍被跟踪）
+- 删除已被 `build-modules.cjs` 取代的 `generate-routes.cjs`：
+  它会覆盖 `generated-routes.js`，误跑一次就会破坏「生成物可复现」校验
+- `deps.mjs` 在接口单测结束后按端口清理残留的 `wrangler dev` / `workerd`，
+  避免它占住 `workers/api/node_modules` 导致后续 `npm ci` 报 EBUSY
 
 > 仓库当前未配置远程地址，因此版本比较链接暂不提供；
 > 打上第一个 tag 后，可在 CI 或本地用 `git log <旧 tag>..<新 tag>` 生成对比。

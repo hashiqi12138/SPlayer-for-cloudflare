@@ -6,7 +6,7 @@
  *
  * 用法: node scripts/probe-unlock-fullsize.cjs [pages-base]
  */
-const cfg = require('./config.cjs')
+const cfg = require('../config.cjs')
 
 const BASE = process.argv[2] || cfg.pagesUrl
 

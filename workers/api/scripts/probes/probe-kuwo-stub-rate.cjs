@@ -5,7 +5,7 @@
  *
  * 用法: node scripts/probe-kuwo-stub-rate.cjs [rounds]
  */
-const cfg = require('./config.cjs')
+const cfg = require('../config.cjs')
 
 const WORKER = cfg.apiWorkerUrl
 const KEYWORD = '灰姑娘-梁咏琪'

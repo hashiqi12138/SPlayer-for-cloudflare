@@ -242,6 +242,7 @@ DEPLOY_SHELL=bash node scripts/deploy.mjs pages   # 在 Windows 上强制走 bas
 | [CHANGELOG.md](./CHANGELOG.md) | 版本变更记录 |
 | [DEPLOY.md](./DEPLOY.md) | 从零开始的部署步骤 |
 | `workers/api/ADAPTATION_TODO.md` | 接口适配现状与排查手段（更细的工程记录） |
+| `workers/api/scripts/probes/README.md` | 一次性排查脚本索引（打真实网络，不进 CI） |
 
 ## 许可
 

@@ -42,7 +42,7 @@
 > 同一 rid 境内直连为 2.0MB 完整歌曲，可确认是出口 IP 导致的降级。
 >
 > **酷我实际有两道独立闸门**（已用双向实验确认，见
-> `scripts/probe-kuwo-region-gate.cjs` 与 `probe-kuwo-ua.cjs`）：
+> `scripts/probes/probe-kuwo-region-gate.cjs` 与 `probe-kuwo-ua.cjs`）：
 >
 > 1. **UA 闸门**：浏览器 UA 一律下发占位片段 —— 境内直连用 Chrome UA 也是
 >    15.6KB，换成 `okhttp/3.10.0`、`Dart/2.19`、客户端 UA 甚至空 UA 都是完整歌曲。
@@ -114,32 +114,32 @@ $env:NCM_COOKIE = "MUSIC_U=xxx;os=pc;"
 node scripts/test-api.cjs http://127.0.0.1:8788
 
 # 3. 播放链路对照（参考实现 / 本地 / 已部署 / Pages 代理）
-node scripts/probe-play.cjs 2702937653
+node scripts/probes/probe-play.cjs 2702937653
 
 # 4. cookie 透传矩阵校验
-node scripts/verify-cookie-forward.cjs http://127.0.0.1:8788
+node scripts/probes/verify-cookie-forward.cjs http://127.0.0.1:8788
 
 # 5. 解锁接口（服务信息 / 各音源 / 空参数）
-node scripts/probe-unblock-api.cjs http://127.0.0.1:8788
+node scripts/probes/probe-unblock-api.cjs http://127.0.0.1:8788
 
 # 6. 解锁多音源 × 多样例矩阵对比
-node scripts/probe-unblock-samples.cjs http://127.0.0.1:8788
+node scripts/probes/probe-unblock-samples.cjs http://127.0.0.1:8788
 
 # 7. 解锁端到端：经 Pages 拿到直链，实际拉流并校验 CORS / 音频类型
-node scripts/probe-unblock-playable.cjs https://dev.splayer-dvj.pages.dev
+node scripts/probes/probe-unblock-playable.cjs https://dev.splayer-dvj.pages.dev
 
 # 8. 解锁接口耗时采样（跨境链路抖动排查）
-node scripts/probe-unblock-latency.cjs https://ncm-api.liujieahu.workers.dev 3
+node scripts/probes/probe-unblock-latency.cjs https://ncm-api.liujieahu.workers.dev 3
 
 # 9. 校验线上产物中酷我音源默认已启用
-node scripts/probe-unlock-default.cjs https://dev.splayer-dvj.pages.dev
+node scripts/probes/probe-unlock-default.cjs https://dev.splayer-dvj.pages.dev
 
 # 10. 判定地域限制依据（真实出口 IP vs 请求头），双向实验
-node scripts/probe-kuwo-region-gate.cjs
+node scripts/probes/probe-kuwo-region-gate.cjs
 
 # 11. UA 闸门验证（浏览器 UA 会触发占位片段）
-node scripts/probe-kuwo-ua.cjs local
+node scripts/probes/probe-kuwo-ua.cjs local
 
 # 12. 占位片段出现概率采样
-node scripts/probe-kuwo-stub-rate.cjs 12
+node scripts/probes/probe-kuwo-stub-rate.cjs 12
 ```

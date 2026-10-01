@@ -12,7 +12,7 @@
 const COOKIE = process.env.NCM_COOKIE || ''
 const ECHO = 'https://httpbin.org/anything'
 
-const cfg = require('./config.cjs')
+const cfg = require('../config.cjs')
 
 const BASES = [
   ['已部署 Worker', cfg.apiWorkerUrl],
