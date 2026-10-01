@@ -1,0 +1,6 @@
+[submodule "workers/api/ncm-source"]
+	path = workers/api/ncm-source
+	url = https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced.git
+[submodule "splayer-frontend"]
+	path = splayer-frontend
+	url = https://github.com/SPlayer-Dev/SPlayer.git

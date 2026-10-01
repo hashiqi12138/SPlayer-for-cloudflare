@@ -757,7 +757,18 @@ function generateMarkdownReport(results, passed, failed, skipped = 0, blocked = 
 }
 
 // 运行
-runTests().catch(err => {
-  console.error('测试执行失败:', err);
-  process.exit(1);
-});
+// 以退出码表达结果：依赖更新流水线（scripts/deps.mjs）依赖它作为发布闸门，
+// 失败用例数 > 0 即退出码 1，避免「测试没过也照样发布」。
+runTests()
+  .then(({ failed }) => {
+    if (failed > 0) {
+      console.error(`\n❌ 存在 ${failed} 个失败用例，退出码 1`);
+      process.exit(1);
+    }
+    console.log('\n✅ 全部用例通过');
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error('测试执行失败:', err);
+    process.exit(1);
+  });

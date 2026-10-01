@@ -13,18 +13,24 @@ Write-Host "  🎨 部署 SPlayer 前端到 Cloudflare Pages" -ForegroundColor C
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 检查 SPlayer 项目是否存在
+# ============================================================
+# 前置检查：上游依赖与补丁/单测状态
+#
+# splayer-frontend 以 git submodule 固定版本引入，本地适配以 patch 形式
+# 存放在 patches/，统一由 scripts/deps.mjs 管理。部署前必须确认：
+# 子模块已就位、补丁已应用、且单测在当前版本上通过。
+# ============================================================
 if (-not (Test-Path $FrontendDir)) {
-    Write-Host "📥 SPlayer 项目不存在，开始克隆..." -ForegroundColor Yellow
-    Write-Host ""
-    
-    git clone https://github.com/SPlayer-Dev/SPlayer.git $FrontendDir
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "❌ 克隆失败" -ForegroundColor Red
-        exit 1
-    }
-    Write-Host "   ✅ 克隆完成" -ForegroundColor Green
-    Write-Host ""
+    Write-Host "❌ 缺少上游依赖 splayer-frontend（git submodule）" -ForegroundColor Red
+    Write-Host "   请先执行: npm run deps:setup" -ForegroundColor Yellow
+    exit 1
+}
+
+& node (Join-Path $ScriptDir "deps.mjs") verify-deploy
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "❌ 依赖状态校验未通过，已中止部署" -ForegroundColor Red
+    Write-Host "   请先执行: npm run deps:update" -ForegroundColor Yellow
+    exit 1
 }
 
 # 检查 wrangler
@@ -107,28 +113,13 @@ if ($envContent -match "VITE_API_URL\s*=\s*.*") {
 Set-Content $envFile $envContent -NoNewline
 
 # ------------------------------------------------------------------
-# 关闭「音乐解锁」默认开关
+# 关于前端源码补丁
 #
-# 解锁三大音源（酷我/波点/网易云）均按出口 IP 限制，在 Cloudflare 出口
-# 无法真正生效（详见证 workers/api/ADAPTATION_TODO.md），上游默认又是开启的。
-# 若不禁用，每首不可用歌曲都会并发打 3 个必然失败的请求，白等数秒。
-# 因此把 useSongUnlock 默认改为 false。
-#
-# 注意：Web 端「音乐解锁」设置项是 Electron 专属（config/play.ts 里
-# show: isElectron），浏览器中无法手动开关，只能改默认值。
-# 替换目标字符串唯一，脚本幂等，可重复执行。
+# 上游适配（如关闭「音乐解锁」默认开关 useSongUnlock）已抽成 patch 文件，
+# 由 scripts/deps.mjs 统一应用，此处不再做内联替换。
+# 补丁状态已在脚本开头通过 `deps.mjs verify-deploy` 校验，未应用则中止部署。
+# 补丁文件：patches/splayer-frontend.patch
 # ------------------------------------------------------------------
-$unlockSettingFile = Join-Path $FrontendDir "src\stores\setting.ts"
-$unlockPatched = 0
-if (Test-Path $unlockSettingFile) {
-    $content = Get-Content $unlockSettingFile -Raw
-    $updated = $content -replace 'useSongUnlock: true', 'useSongUnlock: false'
-    if ($updated -ne $content) {
-        Set-Content $unlockSettingFile $updated -NoNewline -Encoding UTF8
-        $unlockPatched++
-    }
-}
-Write-Host "   ✅ 音乐解锁默认已关闭（$unlockPatched 处）" -ForegroundColor Green
 Write-Host "   ✅ API 地址已设置为: $apiUrl" -ForegroundColor Green
 Write-Host ""
 

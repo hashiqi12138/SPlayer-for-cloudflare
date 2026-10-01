@@ -1,0 +1,55 @@
+﻿diff --git a/module/login_qr_check.js b/module/login_qr_check.js
+index 1f34cb0..dfe622d 100644
+--- a/module/login_qr_check.js
++++ b/module/login_qr_check.js
+@@ -5,25 +5,24 @@ module.exports = async (query, request) => {
+     type: 3,
+   }
+   try {
+-    let result = await request(
++    const result = await request(
+       `/api/login/qrcode/client/login`,
+       data,
+       createOption(query),
+     )
+-    result = {
++    return {
+       status: 200,
+       body: {
+         ...result.body,
+-        cookie: result.cookie.join(';'),
++        cookie: (result.cookie || []).join(';'),
+       },
+-      cookie: result.cookie,
++      cookie: result.cookie || [],
+     }
+-    return result
+   } catch (error) {
+     return {
+       status: 200,
+       body: {},
+-      cookie: result.cookie,
++      cookie: [],
+     }
+   }
+ }
+diff --git a/module/song_detail.js b/module/song_detail.js
+index adcd947..f98a6d9 100644
+--- a/module/song_detail.js
++++ b/module/song_detail.js
+@@ -2,10 +2,13 @@
+ 
+ const createOption = require('../util/option.js')
+ module.exports = (query, request) => {
++  if (!query.ids) {
++    return { status: 400, body: { code: 400, msg: '缺少 ids 参数' } }
++  }
+   // 歌曲数量不要超过1000
+   query.ids = query.ids.split(/\s*,\s*/)
+   const data = {
+     c: '[' + query.ids.map((id) => '{"id":' + id + '}').join(',') + ']',
+   }
+   return request(`/api/v3/song/detail`, data, createOption(query, 'weapi'))
+-}
++}
+\ No newline at end of file

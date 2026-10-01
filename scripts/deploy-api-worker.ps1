@@ -12,23 +12,25 @@ Write-Host "  🎵 部署 api-enhanced Worker" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 检查 setup 是否已运行
-$moduleDir = Join-Path $WorkerDir "src\ncm-modules"
-if (-not (Test-Path $moduleDir)) {
-    Write-Host "⚠️  API 模块尚未导入" -ForegroundColor Yellow
-    Write-Host "   正在运行 setup 脚本..." -ForegroundColor Yellow
-    Write-Host ""
-    
-    Push-Location $WorkerDir
-    try {
-        & node scripts/setup-api-enhanced.js
-        if ($LASTEXITCODE -ne 0) {
-            throw "Setup 失败"
-        }
-    } finally {
-        Pop-Location
-    }
-    Write-Host ""
+# ============================================================
+# 前置检查：上游依赖与补丁/单测状态
+#
+# 上游依赖（ncm-source、splayer-frontend）以 git submodule 固定版本引入，
+# 本地适配以 patch 形式叠加，统一由 scripts/deps.mjs 管理。
+# 部署前必须确认：子模块已就位、补丁已应用、且单测在当前版本上通过。
+# ============================================================
+$ncmSource = Join-Path $WorkerDir "ncm-source"
+if (-not (Test-Path $ncmSource)) {
+    Write-Host "❌ 缺少上游依赖 workers/api/ncm-source（git submodule）" -ForegroundColor Red
+    Write-Host "   请先执行: npm run deps:setup" -ForegroundColor Yellow
+    exit 1
+}
+
+& node (Join-Path $ScriptDir "deps.mjs") verify-deploy
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "❌ 依赖状态校验未通过，已中止部署" -ForegroundColor Red
+    Write-Host "   请先执行: npm run deps:update" -ForegroundColor Yellow
+    exit 1
 }
 
 # 检查 wrangler
