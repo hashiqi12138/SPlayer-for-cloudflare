@@ -18,6 +18,12 @@ CHECK_VERSION = "false"
 # 禁用文件上传（Workers 不支持临时文件）
 ENABLE_FILE_UPLOAD = "false"
 
+# 解锁（解灰）总开关：不在此处声明，默认由代码取 false（即关闭）。
+# 实测三大音源均按出口 IP 限制（酷我下发占位片段、波点 407、网易云 403），
+# Cloudflare 出口无法真正生效，且会拖慢不可用歌曲的播放。
+# 部署到中国大陆出口后，取消下面这行注释并重新部署即可恢复，无需改代码。
+# ENABLE_UNBLOCK = "true"
+
 # 生产环境
 [env.production]
 name = "ncm-api"
