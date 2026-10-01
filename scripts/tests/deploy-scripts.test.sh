@@ -130,21 +130,15 @@ is_msys() {
 
 # 构造一个「只有基础工具、没有 node/npx」的最小 PATH
 #
-# 为什么不能直接写 PATH="$TMPDIR_RUN/nullbin:/usr/bin" 来模拟「缺少 node」：
-# GitHub 的 Ubuntu runner 用 NodeSource apt 装了系统级 Node，/usr/bin/node 是存在的，
-# 于是这个「缺少 node」的场景在 Linux 上根本复现不出来，断言必然失败
-# （Windows 的 MSYS2 /usr/bin 里恰好没有 node，所以本地是绿的）。
+# 为什么不直接写 PATH="$TMPDIR_RUN/nullbin:/usr/bin" 来模拟「缺少 node」：
+# 那个写法隐含假设「/usr/bin 里恰好没有 node」，这在发行版之间并不成立
+# （apt / NodeSource 装的系统级 Node 就落在 /usr/bin）。这里改成构造一个
+# 只含基础工具、明确不含 node/npx 的 PATH，场景由构造保证，与平台无关。
 #
-# 改成构造一个只含基础工具、明确不含 node/npx 的 PATH。
-#
-# 两个细节是踩出来的：
-#   1) 不能靠 `PATH="$EMPTY:/usr/bin"`：GitHub 的 Ubuntu runner 用 NodeSource apt
-#      装了系统级 Node，/usr/bin/node 存在，这个场景在 Linux 上复现不出来，
-#      断言必然失败（Windows 的 MSYS2 /usr/bin 恰好没有 node，本地是绿的）。
-#   2) 不能用 `ln -s` 把工具链进空目录：MSYS2 下 ln -s 实际是复制，复制出来的
-#      二进制找不到 msys-2.0.dll，执行时静默失败 —— 连 dirname 都会返回空字符串，
-#      进而让 `cd "$(dirname ...)"` 变成无参 cd（跳到 $HOME），报出莫名其妙的路径。
-#      因此改为生成「转发脚本」，靠绝对路径 shebang 启动真实二进制，跨平台可靠。
+# 一个有代价的细节：不能用 `ln -s` 把工具链进空目录 —— MSYS2 下 ln -s 实际是复制，
+# 复制出来的二进制找不到 msys-2.0.dll，执行时静默失败：连 dirname 都会返回空字符串，
+# 进而让 `cd "$(dirname ...)"` 变成无参 cd（跳到 $HOME），报出莫名其妙的路径。
+# 因此改为生成「转发脚本」，靠绝对路径 shebang 启动真实二进制，跨平台可靠。
 make_min_path() {
   local dir="$1"
   mkdir -p "$dir"
