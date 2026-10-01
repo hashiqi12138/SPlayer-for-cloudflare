@@ -10,8 +10,11 @@
  *   1. 读取 deploy.config.json（地址的唯一事实来源，见 lib/deploy-config.mjs）
  *   2. 同步 frontend-config/functions -> splayer-frontend/functions，
  *      并把 __API_WORKER_URL__ / __PROXY_WORKER_URL__ 注入为真实地址
- *   3. 同步 _redirects
- *   4. 保证 .env 存在，并写入 VITE_API_URL
+ *   3. 保证 .env 存在，并写入 VITE_API_URL
+ *
+ * 注意 _redirects / _headers 不在这里处理：它们必须出现在**构建产物**里才会生效，
+ * 由构建之后的 scripts/finalize-dist.mjs 统一放入 out/renderer。
+ * （曾经在这里复制到前端项目根目录，而上传的只有 out/renderer，等于从未生效。）
  *
  * 用法:
  *   node scripts/prepare-pages.mjs [--api-url=/api/netease]
@@ -115,17 +118,6 @@ function validateApiUrl(apiUrl) {
   )
 }
 
-/** 同步 _redirects */
-function syncRedirects() {
-  const src = path.join(CONFIG_DIR, '_redirects')
-  const dest = path.join(FRONTEND_DIR, '_redirects')
-  if (!fs.existsSync(src)) {
-    console.log('  ⚠️  frontend-config/_redirects 不存在，跳过')
-    return
-  }
-  fs.copyFileSync(src, dest)
-}
-
 /** 保证 .env 存在，并写入 VITE_API_URL */
 function ensureEnv(apiUrl) {
   const envFile = path.join(FRONTEND_DIR, '.env')
@@ -171,9 +163,6 @@ function main() {
   } catch (e) {
     fail(e.message)
   }
-
-  syncRedirects()
-  console.log('  ✅ _redirects 已同步')
 
   const patched = syncFunctions(cfg)
   console.log(`  ✅ Pages Functions 已同步（注入地址 ${patched} 个文件）`)

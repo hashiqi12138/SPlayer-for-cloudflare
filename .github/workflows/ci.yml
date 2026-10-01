@@ -54,9 +54,12 @@ jobs:
         run: npm run deps:setup
 
       - name: 仓库自检 + 生成物可复现
-        # --with-build 会重建 generated-routes.js 并与入库版本比对，
+        # verify:full 比 verify 多一项：重建 generated-routes.js 并与入库版本比对，
         # 相当于验证「补丁确实应用了」且「重建结果可复现」。
-        run: npm run verify -- --with-build
+        #
+        # 注意这里用独立的 npm script 而不是 `npm run verify -- --with-build`：
+        # npm 10 不会把 `--` 之后的参数转发给脚本，那样会静默降级成不带重建的检查。
+        run: npm run verify:full
 
       - name: 依赖状态
         run: npm run deps:status

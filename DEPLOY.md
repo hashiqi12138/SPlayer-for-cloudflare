@@ -193,32 +193,67 @@ export async function onRequest(context) {
 ```
 splayer-cloudflare/
 ├── DEPLOY.md                    # 本文档
-├── package.json                 # 根项目配置
+├── README.md                    # 架构 / 依赖 / 测试 / 部署总览
+├── CONTRIBUTING.md              # 协作、发布与回滚流程
+├── CHANGELOG.md                 # 版本变更记录
+├── LICENSE                      # AGPL-3.0（与上游 SPlayer 一致）
+├── deploy.config.json           # 地址的唯一事实来源
+├── package.json / package-lock.json   # 工具链（wrangler / prettier）与锁定版本
 ├── scripts/
-│   ├── deploy-all.ps1 / .sh     # 一键部署脚本（PowerShell / bash）
-│   ├── deploy-pages.ps1 / .sh   # 前端 Pages 部署脚本
+│   ├── deploy-all.ps1 / .sh          # 一键部署脚本（PowerShell / bash）
+│   ├── deploy-pages.ps1 / .sh        # 前端 Pages 部署脚本
 │   ├── deploy-api-worker.ps1 / .sh   # API Worker 部署脚本
 │   ├── deploy-proxy-worker.ps1 / .sh # 音乐代理部署脚本
 │   ├── deploy.mjs               # npm run deploy:* 的平台分派入口
-│   ├── lib/common.sh            # bash 侧公共库
-│   ├── prepare-pages.mjs        # 两套部署脚本共用的资源准备逻辑
-│   └── deps.mjs                 # 依赖 pin / 补丁 / 单测发布闸门
+│   ├── verify.mjs               # 仓库自检门禁（CI 与本地同一条命令）
+│   ├── prepare-pages.mjs        # 构建前的资源准备（Functions 注入 / .env）
+│   ├── finalize-dist.mjs        # 构建后的产物收尾（_redirects/_headers + version.json）
+│   ├── deps.mjs                 # 依赖 pin / 补丁 / 单测发布闸门
+│   ├── lib/                     # 共享模块（配置、bash 公共库）
+│   └── tests/                   # 部署脚本自检
 ├── frontend-config/
-│   └── _redirects               # SPA 路由重定向配置
+│   ├── _redirects               # SPA 路由重定向（会被放进构建产物）
+│   ├── _headers                 # 响应头（版本戳不缓存、静态资源长缓存）
+│   └── functions/               # Pages Functions 模板，含 __API_WORKER_URL__ 占位符
 ├── workers/
 │   ├── api/                     # api-enhanced Worker 适配
-│   │   ├── src/
-│   │   │   └── index.js         # Worker 入口
-│   │   ├── wrangler.toml        # wrangler 配置
-│   │   └── package.json
+│   │   ├── src/                 # Worker 源码与 shim
+│   │   ├── test/                # 离线单元测试
+│   │   ├── scripts/             # 构建、测试、探针脚本
+│   │   ├── ncm-source/          # 上游 submodule（固定版本）
+│   │   └── wrangler.toml
 │   └── music-proxy/             # 网易云音乐 CDN 代理
 │       ├── src/
-│       │   └── index.js         # Worker 入口
 │       └── wrangler.toml
-└── splayer-frontend/            # SPlayer 前端代码（clone 后）
-    ├── out/renderer/            # 构建产物
-    └── _redirects               # SPA 路由配置
+└── splayer-frontend/            # SPlayer 前端（上游 submodule + 本地补丁）
+    └── out/renderer/            # 构建产物（部署时上传的目录）
 ```
+
+## 部署后核对与回滚
+
+### 核对线上版本
+
+每次部署前端都会把版本信息写进产物，访问 `https://<你的域名>/version.json` 可看到：
+
+```json
+{ "version": "1.0.0", "commitShort": "abc1234", "dirty": false, "builtAt": "…",
+  "deps": { "splayer-frontend": "…", "ncm-source": "…" }, "tests": { "passed": 66 } }
+```
+
+拿 `commitShort` 和 `git log` 对照即可确认线上跑的是哪个提交。
+`dirty: true` 说明打包时工作区有未提交改动，这时提交号仅供参考。
+
+### 回滚
+
+部署可重复执行，**回滚 = 用旧代码重新部署一次**，无需改动线上配置：
+
+| 组件 | 方式 |
+|---|---|
+| 前端 Pages | Cloudflare 控制台 → Pages → 项目 → Deployments → 选中目标版本 → Rollback；或 `git checkout <旧 tag>` 后重跑 `npm run deploy:pages` |
+| API Worker | `npx wrangler rollback --name <worker 名>`；或 `git checkout <旧 tag>` 后重跑 `npm run deploy:api` |
+
+注意：只回滚前端产物**不会**还原 `deploy.config.json`。若那次发布同时改过 API 地址，
+需要把配置一并回退后再部署。
 
 ## Cloudflare 免费额度说明
 
@@ -245,7 +280,19 @@ A: 先看错误类型：
 
 ### Q: 歌曲解灰功能能用吗？
 
-A: api-enhanced 内置的解灰功能（ENABLE_GENERAL_UNBLOCK）理论上可以工作，但需要额外的网络请求。外部解灰服务（unblockneteasemusic）无法在 Workers 中运行。
+A: **默认关闭，且在 Cloudflare 出口无法真正生效**。实测三大音源（网易云 / 酷我 / 波点）
+都按**真实 TCP 出口 IP** 判断地区，伪造请求头无效——酷我会下发一个固定的 15.6KB 占位音频
+（所有歌曲同一资源），波点返回 407，网易云返回 403。
+在 Cloudflare 出口拿到的是海外 IP，因此解锁拿不到可用音源。
+
+部署到中国大陆出口后，把 `workers/api/wrangler.toml` 的 `ENABLE_UNBLOCK` 设为 `"true"`
+重新部署即可恢复，无需改动代码。前后端的实现与排查过程见
+`workers/api/ADAPTATION_TODO.md`。
+
+### Q: 怎么确认线上跑的是哪个版本？
+
+A: 访问 `/version.json`，里面有版本号、提交号、依赖 pin 与构建时间，详见本文
+「部署后核对与回滚」。
 
 ### Q: 云盘上传能用吗？
 
