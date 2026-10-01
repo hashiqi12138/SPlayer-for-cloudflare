@@ -224,6 +224,53 @@ const ourSourceFiles = walk(ROOT)
 }
 
 // ------------------------------------------------------------
+// 4b. PowerShell 语法检查
+//
+// 与 bash 侧的 `bash -n` 对称。`.ps1` 是 Windows 上真正被执行的那一半，
+// 此前却没有任何语法门禁 —— 改坏了要等到真的部署那一刻才会暴露。
+// 这里用 PowerShell 自带的解析器（不执行脚本），只做语法分析。
+//
+// 找不到 powershell 就跳过：非 Windows 环境通常没有，CI 由 Windows 任务覆盖。
+// ------------------------------------------------------------
+{
+  const files = tracked.filter((f) => f.endsWith('.ps1'))
+
+  const candidates = process.platform === 'win32' ? ['powershell', 'pwsh'] : ['pwsh']
+  const shell = candidates.find(
+    (c) =>
+      run(c, ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.Major'], { stdio: 'pipe' })
+        .status === 0,
+  )
+
+  if (!shell) {
+    skip(
+      'PowerShell 语法检查',
+      `跳过：当前环境没有可用的 PowerShell（试过 ${candidates.join(' / ')}）`,
+    )
+  } else {
+    const broken = []
+    for (const rel of files) {
+      const abs = path.join(ROOT, rel)
+      if (!fs.existsSync(abs)) continue
+      // 路径里的单引号要按 PowerShell 的规则转义（双写），否则原样拼进脚本会解析失败
+      const quoted = abs.replace(/'/g, "''")
+      const code =
+        `$e=$null; [System.Management.Automation.Language.Parser]::ParseFile('${quoted}', [ref]$null, [ref]$e) | Out-Null; ` +
+        `if ($e -and $e.Count -gt 0) { $e | ForEach-Object { Write-Output ("{0}: {1}" -f $_.Extent.StartLineNumber, $_.Message) }; exit 1 }`
+      const r = run(shell, ['-NoProfile', '-NonInteractive', '-Command', code], { stdio: 'pipe' })
+      if (r.status !== 0) {
+        const first = `${r.stdout || ''}${r.stderr || ''}`
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean)[0]
+        broken.push(`${rel} — ${first || '解析失败'}`)
+      }
+    }
+    record(broken.length === 0, `PowerShell 语法检查（${files.length} 个文件）`, broken)
+  }
+}
+
+// ------------------------------------------------------------
 // 5. JSON 可解析 + 部署配置完整
 // ------------------------------------------------------------
 {
