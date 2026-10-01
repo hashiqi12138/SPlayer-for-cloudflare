@@ -11,6 +11,12 @@ import { getJson, toHttps } from './http.js';
 
 const GD_API = 'https://music-api.gdstudio.xyz/api.php';
 
+/** 聚合接口的请求头：补上 Referer / Accept，尽量贴近正常调用方 */
+const GD_HEADERS = {
+  Referer: 'https://music-api.gdstudio.xyz/',
+  Accept: 'application/json, text/plain, */*',
+};
+
 /**
  * @param {number|string} id 网易云歌曲 ID
  * @returns {Promise<{code: number, url: string|null}>}
@@ -21,6 +27,7 @@ async function getNeteaseSongUrl(id) {
 
     const data = await getJson(
       `${GD_API}?types=url&id=${encodeURIComponent(id)}`,
+      { headers: GD_HEADERS },
     );
 
     const url = data?.url;

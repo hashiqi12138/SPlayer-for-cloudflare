@@ -14,7 +14,12 @@
  * 说明：
  * - Workers 的 fetch 不接受地道的 url 参数拼接，这里手动拼 query
  * - `timeout` / `proxy` 在 Workers 中无意义，直接忽略
+ * - 默认补一个浏览器 UA：调用方（如 related_playlist 抓网易云 HTML）
+ *   通常不传任何请求头，裸请求容易被源站当成爬虫返回空白页
  */
+
+const DEFAULT_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 function buildUrl(url, params) {
   if (!params) return url;
@@ -30,6 +35,9 @@ async function axios(config = {}) {
   const url = buildUrl(config.url || '', config.params);
 
   const headers = { ...(config.headers || {}) };
+  if (!headers['User-Agent'] && !headers['user-agent']) {
+    headers['User-Agent'] = DEFAULT_UA;
+  }
 
   let body;
   if (config.data !== undefined && config.data !== null) {

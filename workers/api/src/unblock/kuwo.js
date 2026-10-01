@@ -16,6 +16,20 @@ const PACKAGE_NAME = 'kwplayer_ar_5.1.0.0_B_jiakong_vh.apk';
 const KUWO_UA = 'okhttp/3.10.0';
 
 /**
+ * 发往酷我接口的请求头。
+ *
+ * 说明：这些头只用于「看起来像正常客户端」，**不能绕过地域限制**——
+ * 已用双向实验确认酷我只按真实 TCP 出口 IP 判定（伪造 XFF / X-Real-IP /
+ * Client-IP 均无效，见 ADAPTATION_TODO.md）。
+ */
+const kuwoHeaders = (extra = {}) => ({
+  'User-Agent': KUWO_UA,
+  Referer: 'http://www.kuwo.cn/',
+  Accept: '*/*',
+  ...extra,
+});
+
+/**
  * 搜索并匹配出酷我歌曲 ID
  * @param {{keyword: string, songName?: string, artist?: string}} match
  * @returns {Promise<{songId: string|null, candidates: any[], matched: boolean}>}
@@ -26,7 +40,7 @@ async function searchKuwo(match) {
     '&rformat=json&mobi=1&show_copyright_off=1&searchapi=6&all=' +
     encodeURIComponent(match.keyword);
 
-  const text = await getTextAny(url, { headers: { 'User-Agent': KUWO_UA } });
+  const text = await getTextAny(url, { headers: kuwoHeaders() });
   const data = JSON.parse(text);
 
   const abslist = data?.content?.[1]?.musicpage?.abslist;
@@ -57,7 +71,7 @@ async function searchKuwo(match) {
  * @param {{keyword: string, songName?: string, artist?: string}} match
  * @returns {Promise<{code: number, url: string|null, reason?: string, debug?: object}>}
  */
-async function getKuwoSongUrl(match) {
+async function getKuwoSongUrl(match, extraHeaders = {}) {
   try {
     if (!match?.keyword) return { code: 404, url: null, reason: 'empty-keyword' };
 
@@ -75,7 +89,7 @@ async function getKuwoSongUrl(match) {
       `corp=kuwo&source=${PACKAGE_NAME}&p2p=1&type=convert_url2&sig=0&format=mp3&rid=${songId}`,
     );
     const text = await getTextAny(`https://mobi.kuwo.cn/mobi.s?f=kuwo&q=${query}`, {
-      headers: { 'User-Agent': KUWO_UA },
+      headers: kuwoHeaders(extraHeaders),
     });
 
     const matchedUrl = text.match(/http[^\s$"]+/);

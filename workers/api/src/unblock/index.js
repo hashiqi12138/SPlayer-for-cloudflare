@@ -58,6 +58,30 @@ const UNBLOCK_INFO = {
   sources: ['netease', 'kuwo', 'bodian'],
 };
 
+/**
+ * 诊断用：debug=1 时允许覆盖发往上游的少量请求头。
+ *
+ * 用途是判定音源的地区限制究竟看「真实出口 IP」还是「请求头里的 IP」——
+ * 实测结论是酷我只看真实 TCP 出口 IP，伪造 IP 头无效（见 ADAPTATION_TODO.md）。
+ * 仅在 debug=1 下生效，且只允许白名单内的头，不能注入任意请求头。
+ */
+const DEBUG_HEADER_PARAMS = {
+  xff: 'X-Forwarded-For',
+  realip: 'X-Real-IP',
+  clientip: 'Client-IP',
+  referer: 'Referer',
+  ua: 'User-Agent',
+};
+
+function buildDebugHeaders(query = {}) {
+  if (query.debug !== '1') return {};
+  const out = {};
+  for (const [param, header] of Object.entries(DEBUG_HEADER_PARAMS)) {
+    if (query[param]) out[header] = String(query[param]);
+  }
+  return out;
+}
+
 export function registerUnblockRoutes(app) {
   // 音频代理：把音源直链转成同源路径并补 CORS 头（见 audio-proxy.js）
   registerAudioProxy(app);
@@ -126,7 +150,9 @@ export function registerUnblockRoutes(app) {
   // 酷我 / 波点按关键词搜索匹配
   app.get(
     '/api/unblock/kuwo',
-    handler('kuwo', (_query, match) => getKuwoSongUrl(match)),
+    handler('kuwo', (query, match) =>
+      getKuwoSongUrl(match, buildDebugHeaders(query)),
+    ),
   );
   app.get(
     '/api/unblock/bodian',

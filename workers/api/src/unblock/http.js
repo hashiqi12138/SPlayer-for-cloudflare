@@ -107,6 +107,17 @@ export async function postTextAny(httpsUrl, body, options = {}) {
  * @returns {Promise<number>} 总字节数；无法判定时返回 0
  */
 export async function getAudioTotalBytes(url, timeout = 10000) {
+  // 探测失败会退化成「无法判定」，进而放行占位片段（已实测出现过误判），
+  // 因此失败重试一次，尽量拿到确定结果。
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const total = await probeOnce(url, timeout);
+    if (total > 0) return total;
+    if (attempt === 1) await new Promise((r) => setTimeout(r, 300));
+  }
+  return 0;
+}
+
+async function probeOnce(url, timeout) {
   try {
     const res = await fetch(url, {
       headers: { Range: 'bytes=0-1', 'User-Agent': DEFAULT_UA },
@@ -122,7 +133,6 @@ export async function getAudioTotalBytes(url, timeout = 10000) {
     if (Number.isFinite(len) && len > 0) return len;
     return 0;
   } catch (e) {
-    // 探测失败不应导致解锁失败，交由调用方按「无法判定」处理
     return 0;
   }
 }

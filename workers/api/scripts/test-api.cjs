@@ -161,6 +161,9 @@ const testCases = [
     path: '/related/playlist?id=10042797373',
     method: 'GET',
     expectedCode: 200,
+    // 该接口靠正则解析网易云返回的 HTML，上游页面偶有变化/波动，
+    // 声明为可重试用例，失败后重试一次，避免把上游抖动记成失败
+    retryable: true,
     validate: (json) =>
       json.playlists && json.playlists.length > 0 ? null : 'playlists 为空',
   },
@@ -217,8 +220,15 @@ async function runTests() {
     process.stdout.write(`[${String(i + 1).padStart(2, ' ')}/${testCases.length}] ${tc.name}... `);
     
     try {
-      const result = await testEndpoint(tc);
-      
+      let result = await testEndpoint(tc);
+
+      // 依赖第三方页面抓取的接口（如相关歌单解析网易云 HTML）会随上游抖动，
+      // 声明 retryable 的用例失败后重试一次，避免把上游波动记成失败。
+      if (!result.pass && !result.blocked && !result.skipped && tc.retryable) {
+        await new Promise((r) => setTimeout(r, 600));
+        result = await testEndpoint(tc);
+      }
+
       if (result.pass && result.skipped) {
         skipped++;
         console.log(`⏭   (${result.errorMsg})`);
