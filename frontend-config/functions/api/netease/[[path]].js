@@ -10,10 +10,10 @@
  */
 
 // ====== 配置区 ======
-// 你的 API Worker 地址（不带尾部斜杠）
-// 部署脚本会把本目录整体同步到 splayer-frontend/functions，
-// 这里保持与线上一致的真实地址，避免同步后回退成占位符。
-const API_WORKER_URL = "https://ncm-api.liujieahu.workers.dev";
+// API Worker 地址。此处使用占位符，由 scripts/deploy-pages.ps1 在复制到
+// splayer-frontend/functions 时，按根目录 deploy.config.json 的值替换。
+// 请不要直接改成真实地址，否则就失去了「单一配置源」的意义。
+const API_WORKER_URL = "__API_WORKER_URL__";
 
 export async function onRequest(context) {
   const { request, env, params } = context;

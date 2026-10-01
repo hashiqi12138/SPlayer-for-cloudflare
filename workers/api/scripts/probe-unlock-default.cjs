@@ -7,7 +7,9 @@
  *
  * 用法: node scripts/probe-unlock-default.cjs [pages-base]
  */
-const BASE = process.argv[2] || 'https://dev.splayer-dvj.pages.dev';
+const cfg = require('./config.cjs');
+
+const BASE = process.argv[2] || cfg.pagesUrl;
 
 (async () => {
   console.log(`目标: ${BASE}\n`);

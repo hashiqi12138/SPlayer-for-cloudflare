@@ -6,8 +6,23 @@
  *
  * 用法: node scripts/probe-kuwo-ua.cjs [local|cloudflare|both]
  */
-const KW_DES = 'file:///g:/tiktok/splayer-cloudflare/splayer-frontend/electron/server/unblock/kwDES.js';
-const WORKER = 'https://ncm-api.liujieahu.workers.dev';
+// 复用前端仓库里的酷我 DES 实现（路径按本脚本位置推导，避免写死本机绝对路径）
+const KW_DES = require('url').pathToFileURL(
+  require('path').resolve(
+    __dirname,
+    '..',
+    '..',
+    '..',
+    'splayer-frontend',
+    'electron',
+    'server',
+    'unblock',
+    'kwDES.js',
+  ),
+).href;
+const cfg = require('./config.cjs');
+
+const WORKER = cfg.apiWorkerUrl;
 
 const PACKAGE_NAME = 'kwplayer_ar_5.1.0.0_B_jiakong_vh.apk';
 const RID = '479718674';

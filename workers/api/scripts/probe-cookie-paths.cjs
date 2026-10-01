@@ -12,8 +12,10 @@
 const COOKIE = process.env.NCM_COOKIE || '';
 const ECHO = 'https://httpbin.org/anything';
 
+const cfg = require('./config.cjs');
+
 const BASES = [
-  ['已部署 Worker', 'https://ncm-api.liujieahu.workers.dev'],
+  ['已部署 Worker', cfg.apiWorkerUrl],
   ['本地 dev', 'http://127.0.0.1:8788'],
 ];
 

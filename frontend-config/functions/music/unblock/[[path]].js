@@ -11,8 +11,9 @@
  */
 
 // ====== 配置区 ======
-// 音乐代理 Worker 地址（音频 CDN 代理，解决 CORS / Range 请求）
-const PROXY_WORKER_URL = "https://music-proxy.liujieahu.workers.dev";
+// 音乐代理 Worker 地址（音频 CDN 代理，解决 CORS / Range 请求）。
+// 占位符由 scripts/deploy-pages.ps1 按 deploy.config.json 替换。
+const PROXY_WORKER_URL = "__PROXY_WORKER_URL__";
 
 export async function onRequest(context) {
   const { request, params } = context;

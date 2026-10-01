@@ -5,7 +5,9 @@
  *
  * 用法: node scripts/probe-kuwo-stub-rate.cjs [rounds]
  */
-const WORKER = 'https://ncm-api.liujieahu.workers.dev';
+const cfg = require('./config.cjs');
+
+const WORKER = cfg.apiWorkerUrl;
 const KEYWORD = '灰姑娘-梁咏琪';
 const ROUNDS = Number(process.argv[2]) || 10;
 

@@ -10,8 +10,11 @@
  * 部署路径：/music/unblock/*
  */
 
-const MUSIC_ORIGIN = "https://music.163.com";
-const INTERFACE_ORIGIN = "https://interface.music.163.com";
+// 源站默认值。实际取值优先读环境变量（wrangler.toml 的 [vars]），
+// 这样不改代码就能切换源站（例如指向自建镜像）。
+// 注意：此前这里只声明了 [vars] 却在代码里写死常量，属于无效配置。
+const DEFAULT_MUSIC_ORIGIN = 'https://music.163.com';
+const DEFAULT_INTERFACE_ORIGIN = 'https://interface.music.163.com';
 
 // 允许的请求路径前缀（安全限制，防止被滥用）
 const ALLOWED_PATH_PREFIXES = [
@@ -52,6 +55,11 @@ function isAllowedPath(pathname) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    // 源站可经环境变量覆盖
+    const MUSIC_ORIGIN = (env && env.MUSIC_ORIGIN) || DEFAULT_MUSIC_ORIGIN;
+    const INTERFACE_ORIGIN =
+      (env && env.INTERFACE_ORIGIN) || DEFAULT_INTERFACE_ORIGIN;
     
     // 健康检查
     if (url.pathname === "/" || url.pathname === "/health") {

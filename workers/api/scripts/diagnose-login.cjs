@@ -15,7 +15,9 @@ const path = require('path');
 const axios = require('axios');
 const enc = require(path.join(__dirname, '..', 'ncm-source', 'util', 'crypto.js'));
 
-const BASE = process.argv[2] || 'https://ncm-api.liujieahu.workers.dev';
+const cfg = require('./config.cjs');
+
+const BASE = process.argv[2] || cfg.apiWorkerUrl;
 const COOKIE = process.env.NCM_COOKIE || '';
 const DOMAIN = 'https://music.163.com';
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0';

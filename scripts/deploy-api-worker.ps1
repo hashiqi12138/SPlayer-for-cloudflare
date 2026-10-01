@@ -1,6 +1,14 @@
-# ============================================================
+﻿# ============================================================
 #  API Worker 部署脚本
+#
+#  用法:
+#    .\deploy-api-worker.ps1                  交互式（会询问是否先本地测试）
+#    .\deploy-api-worker.ps1 -NonInteractive  跳过所有询问，便于自动化
 # ============================================================
+
+param(
+    [switch]$NonInteractive
+)
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -70,8 +78,14 @@ try {
 Write-Host ""
 
 # 先本地测试一下（可选）
-Write-Host "🧪 是否先本地测试？(y/N)" -ForegroundColor Yellow -NoNewline
-$testLocal = Read-Host
+if ($NonInteractive) {
+    $testLocal = "n"
+    Write-Host "🧪 本地测试: 跳过（-NonInteractive）" -ForegroundColor Yellow
+    Write-Host ""
+} else {
+    Write-Host "🧪 是否先本地测试？(y/N)" -ForegroundColor Yellow -NoNewline
+    $testLocal = Read-Host
+}
 if ($testLocal -eq "y" -or $testLocal -eq "Y") {
     Write-Host ""
     Write-Host "   启动本地开发服务器..." -ForegroundColor Yellow
