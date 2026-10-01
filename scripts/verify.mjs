@@ -463,4 +463,41 @@ if (failed === 0) {
 } else {
   console.log(`❌ ${failed} / ${results.length} 项未通过`)
 }
+
+// ------------------------------------------------------------
+// CI 摘要
+//
+// 失败时把「哪几项挂了、具体是什么」写进 job summary。这样做的好处：
+// 排查 CI 失败不必去翻动辄几千行的日志（日志还需要认证才能取），
+// 在 GitHub 的 Checks 页面、甚至公开的 check-runs API 上就能直接读到结论。
+// 这一步失败不影响退出码。
+// ------------------------------------------------------------
+if (process.env.GITHUB_STEP_SUMMARY) {
+  const cell = (s) => String(s).replace(/\|/g, '\\|').replace(/\n/g, ' ')
+  const md = ['## 仓库自检', '']
+  md.push(
+    `**结果**：${failed === 0 ? '✅ 全部通过' : `❌ ${failed} / ${results.length} 项未通过`}`,
+    '',
+  )
+  md.push('| 检查项 | 结果 |', '| --- | --- |')
+  for (const r of results) {
+    md.push(`| ${cell(r.title)} | ${r.skipped ? '跳过' : r.ok ? '通过' : '失败'} |`)
+  }
+
+  const failures = results.filter((r) => !r.ok && !r.skipped)
+  if (failures.length) {
+    md.push('', '### 失败详情', '')
+    for (const f of failures) {
+      md.push(`- **${cell(f.title)}**`)
+      for (const d of f.details.slice(0, 20)) md.push(`  - ${cell(d).slice(0, 300)}`)
+    }
+  }
+
+  try {
+    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md.join('\n') + '\n', 'utf8')
+  } catch (e) {
+    console.error(`（写入 job summary 失败，不影响结论：${e.message}）`)
+  }
+}
+
 process.exit(failed === 0 ? 0 : 1)

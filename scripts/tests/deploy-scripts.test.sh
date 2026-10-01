@@ -58,8 +58,7 @@ fi
 
 TMPDIR_RUN="$(mktemp -d "${TMPDIR:-/tmp}/splayer-deploy-test.XXXXXX")"
 FAKEBIN="$TMPDIR_RUN/fakebin"
-EMPTYBIN="$TMPDIR_RUN/emptybin"
-mkdir -p "$FAKEBIN" "$EMPTYBIN"
+mkdir -p "$FAKEBIN"
 trap 'rm -rf "$TMPDIR_RUN"' EXIT
 
 pass=0
@@ -112,6 +111,46 @@ is_msys() {
   esac
 }
 
+# 构造一个「只有基础工具、没有 node/npx」的最小 PATH
+#
+# 为什么不能直接写 PATH="$TMPDIR_RUN/nullbin:/usr/bin" 来模拟「缺少 node」：
+# GitHub 的 Ubuntu runner 用 NodeSource apt 装了系统级 Node，/usr/bin/node 是存在的，
+# 于是这个「缺少 node」的场景在 Linux 上根本复现不出来，断言必然失败
+# （Windows 的 MSYS2 /usr/bin 里恰好没有 node，所以本地是绿的）。
+#
+# 改成构造一个只含基础工具、明确不含 node/npx 的 PATH。
+#
+# 两个细节是踩出来的：
+#   1) 不能靠 `PATH="$EMPTY:/usr/bin"`：GitHub 的 Ubuntu runner 用 NodeSource apt
+#      装了系统级 Node，/usr/bin/node 存在，这个场景在 Linux 上复现不出来，
+#      断言必然失败（Windows 的 MSYS2 /usr/bin 恰好没有 node，本地是绿的）。
+#   2) 不能用 `ln -s` 把工具链进空目录：MSYS2 下 ln -s 实际是复制，复制出来的
+#      二进制找不到 msys-2.0.dll，执行时静默失败 —— 连 dirname 都会返回空字符串，
+#      进而让 `cd "$(dirname ...)"` 变成无参 cd（跳到 $HOME），报出莫名其妙的路径。
+#      因此改为生成「转发脚本」，靠绝对路径 shebang 启动真实二进制，跨平台可靠。
+make_min_path() {
+  local dir="$1"
+  mkdir -p "$dir"
+  local u real
+  for u in dirname basename cut tr awk grep sed sort uniq head tail cat \
+    mkdir rm rmdir ln chmod mv cp date env uname which expr tee wc mktemp touch find sleep; do
+    real="$(command -v "$u" 2>/dev/null)" || continue
+    [ -n "$real" ] || continue
+    printf '#!/bin/sh\nexec "%s" "$@"\n' "$real" >"$dir/$u"
+    chmod +x "$dir/$u" 2>/dev/null || true
+  done
+  # 确保 node/npx 确实不可见，否则这个场景不成立，交由调用方跳过
+  rm -f "$dir/node" "$dir/npx" "$dir/npm" 2>/dev/null || true
+  if [ -e "$dir/node" ] || [ -e "$dir/npx" ]; then
+    return 1
+  fi
+  # 自检：转发脚本真的能跑通（否则整个场景没有意义）
+  if [ "$(PATH="$dir" dirname /a/b/c 2>/dev/null)" != "/a/b" ]; then
+    return 1
+  fi
+  return 0
+}
+
 echo "=== 0. 环境 ==="
 echo "  bash   : $BASH_VERSION"
 echo "  平台   : $(uname -o 2>/dev/null || uname -s)"
@@ -124,6 +163,10 @@ echo
 
 HAVE_NODE=0
 command -v node >/dev/null 2>&1 && HAVE_NODE=1
+
+# 绝对路径的 bash：后面要在「不含 bash 的最小 PATH」里启动脚本与假 node，
+# 靠 PATH 查找会失败，用绝对路径 shebang 才可靠
+BASH_BIN="${BASH:-$(command -v bash || echo bash)}"
 
 echo "=== 1. 语法检查 ==="
 for f in "$SCRIPTS"/*.sh "$SCRIPTS"/lib/*.sh "$SCRIPTS"/tests/*.sh; do
@@ -248,8 +291,9 @@ else
   echo "=== 6. 发布闸门：依赖校验失败必须中止在构建/部署之前 ==="
   REAL_NODE="$(command -v node)"
   cat >"$FAKEBIN/node" <<EOF
-#!/usr/bin/env bash
+#!$BASH_BIN
 # 假的 node：只拦截 deps.mjs 的闸门命令，其余原样转发给真 node
+# shebang 用绝对路径：这个假 node 会在「不含 bash 的最小 PATH」下执行
 case "\$*" in
   *deps.mjs\ verify-deploy*)
     if [ "\${FAKE_DEPS_FAIL:-1}" = "1" ]; then
@@ -281,28 +325,31 @@ EOF
   echo
 
   echo "=== 7. 前置检查的报错是否可操作 ==="
-  out="$(PATH="$EMPTYBIN:/usr/bin" bash "$SCRIPTS/deploy-api-worker.sh" --non-interactive 2>&1)"
-  rc=$?
-  [ $rc -ne 0 ]
-  chk $? "缺 node 时退出码非 0"
-  chk_contains "$out" '未找到命令：node' "缺 node 时直说缺 node"
-  chk_contains "$out" 'Node.js' "给出安装提示"
+  MINBIN="$TMPDIR_RUN/minbin"
+  if make_min_path "$MINBIN"; then
+    # 缺 node：PATH 里只有基础工具，node / npx / npm 都不存在
+    out="$(PATH="$MINBIN" "$BASH_BIN" "$SCRIPTS/deploy-api-worker.sh" --non-interactive 2>&1)"
+    rc=$?
+    [ $rc -ne 0 ]
+    chk $? "缺 node 时退出码非 0"
+    chk_contains "$out" '未找到命令：node' "缺 node 时直说缺 node"
+    chk_contains "$out" 'Node.js' "给出安装提示"
 
-  if PATH="$EMPTYBIN:/usr/bin" command -v npx >/dev/null 2>&1; then
-    skip_msg "当前环境无法屏蔽 npx，跳过「缺 npx」检查"
-  else
-    out="$(PATH="$FAKEBIN:$EMPTYBIN:/usr/bin" FAKE_DEPS_FAIL=0 bash "$SCRIPTS/deploy-pages.sh" --non-interactive 2>&1)"
+    # 有 node（假 node，闸门放行）但没有 npx：应停在 wrangler 检查
+    out="$(PATH="$FAKEBIN:$MINBIN" FAKE_DEPS_FAIL=0 "$BASH_BIN" "$SCRIPTS/deploy-pages.sh" --non-interactive 2>&1)"
     rc=$?
     [ $rc -ne 0 ]
     chk $? "缺 npx 时退出码非 0"
     chk_contains "$out" '未找到命令：npx' "缺 npx 提示文案"
     chk_contains "$out" '模拟依赖校验通过' "闸门通过后才进入 wrangler 检查"
 
-    out="$(PATH="$FAKEBIN:$EMPTYBIN:/usr/bin" FAKE_DEPS_FAIL=0 bash "$SCRIPTS/deploy-proxy-worker.sh" --non-interactive 2>&1)"
+    out="$(PATH="$FAKEBIN:$MINBIN" FAKE_DEPS_FAIL=0 "$BASH_BIN" "$SCRIPTS/deploy-proxy-worker.sh" --non-interactive 2>&1)"
     rc=$?
     [ $rc -ne 0 ]
     chk $? "proxy-worker 缺 npx 时退出码非 0"
     chk_contains "$out" '未找到命令：npx' "proxy-worker 缺 npx 提示文案"
+  else
+    skip_msg "无法构造不含 node/npx 的 PATH，跳过「缺少工具」相关检查"
   fi
   echo
 

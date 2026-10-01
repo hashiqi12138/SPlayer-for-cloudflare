@@ -5,6 +5,27 @@
 
 发布流程见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
+## [1.0.1] - 2026-10-01
+
+修掉首次在 GitHub Actions 上暴露的问题（Windows 任务通过、Linux 任务失败）。
+
+### 修复
+
+- **部署脚本自检在 Linux 上必然失败**：那条「缺少 node 时应给出可操作提示」的用例用
+  `PATH="$空目录:/usr/bin"` 去屏蔽 node，但 GitHub 的 Ubuntu runner 通过 NodeSource
+  装了系统级 Node，`/usr/bin/node` 是存在的，场景根本复现不出来（Windows 的 MSYS2
+  `/usr/bin` 恰好没有 node，所以本地是绿的）。改为构造一个只含基础工具、明确不含
+  `node`/`npx` 的最小 PATH，且构造后自检确实可用，不可用则跳过而不是误报失败。
+- 构造最小 PATH 时不能用 `ln -s`：MSYS2 下它是复制，复制出的二进制找不到
+  `msys-2.0.dll`，执行静默失败连 `dirname` 都返回空串；改用绝对路径 shebang 的转发脚本。
+- 假 `node` 的 shebang 由 `#!/usr/bin/env bash` 改为绝对路径，否则它在最小 PATH 下无法启动。
+
+### 新增
+
+- **CI 失败可定位**：`verify` 会把检查结果与失败详情写进 job summary。
+  以前排查 CI 失败要翻几千行且需要认证才能获取的日志；现在在 Checks 页面
+  （乃至公开的 check-runs API）就能直接看到是哪几项、具体错在哪。
+
 ## [1.0.0] - 2026-10-01
 
 首个正式版本：把 SPlayer 前端与 api-enhanced 后端完整部署在 Cloudflare 上
