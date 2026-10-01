@@ -105,6 +105,30 @@ if ($envContent -match "VITE_API_URL\s*=\s*.*") {
     $envContent += "`nVITE_API_URL=$apiUrl`n"
 }
 Set-Content $envFile $envContent -NoNewline
+
+# ------------------------------------------------------------------
+# 解锁音源默认值补丁
+#
+# 上游默认关闭酷我音源（enabled: false），而 Web 端「音乐解锁」设置项是
+# Electron 专属（config/play.ts 里 show: isElectron），浏览器中无法开启。
+# 本部署出口下波点/网易云均被上游限制，只有酷我可用，因此把默认值改为启用。
+# 替换目标字符串唯一，脚本幂等，可重复执行。
+# ------------------------------------------------------------------
+$unlockFiles = @(
+    (Join-Path $FrontendDir "src\stores\setting.ts"),
+    (Join-Path $FrontendDir "src\stores\migrations\settingMigrations.ts")
+)
+$patchedCount = 0
+foreach ($file in $unlockFiles) {
+    if (-not (Test-Path $file)) { continue }
+    $content = Get-Content $file -Raw
+    $updated = $content -replace '\{ key: SongUnlockServer\.KUWO, enabled: false \}', '{ key: SongUnlockServer.KUWO, enabled: true }'
+    if ($updated -ne $content) {
+        Set-Content $file $updated -NoNewline -Encoding UTF8
+        $patchedCount++
+    }
+}
+Write-Host "   ✅ 解锁音源默认值已补丁（$patchedCount 处）" -ForegroundColor Green
 Write-Host "   ✅ API 地址已设置为: $apiUrl" -ForegroundColor Green
 Write-Host ""
 

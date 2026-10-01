@@ -14,6 +14,17 @@
 import getKuwoSongUrl from './kuwo.js';
 import getBodianSongUrl from './bodian.js';
 import getNeteaseSongUrl from './netease.js';
+import { buildProxyUrl, registerAudioProxy } from './audio-proxy.js';
+import { toHttps, getAudioTotalBytes } from './http.js';
+
+/**
+ * 小于该体积的音频视为音源下发的占位片段。
+ *
+ * 实测酷我对非中国大陆出口 IP 返回固定的 15.6KB 音频（所有歌曲同一资源），
+ * 它是合法 MP3 但只有约 0.4 秒；若不拦截，前端会「假成功」并很快播放中断。
+ * 64KB 相当于 128kbps 下的约 4 秒，足以区分占位片段与正常歌曲。
+ */
+const MIN_VALID_AUDIO_BYTES = 64 * 1024;
 
 /**
  * 构造匹配信息
@@ -48,6 +59,9 @@ const UNBLOCK_INFO = {
 };
 
 export function registerUnblockRoutes(app) {
+  // 音频代理：把音源直链转成同源路径并补 CORS 头（见 audio-proxy.js）
+  registerAudioProxy(app);
+
   // 把「总是返回 {code, url}」的语义固化下来，避免异常穿透成 500。
   // 额外附带 reason（失败原因）与 source，前端契约只认 code/url，
   // 多出的字段仅用于运维排查与测试分类。
@@ -55,11 +69,42 @@ export function registerUnblockRoutes(app) {
     const query = { ...req.query, ...req.body };
     try {
       const result = await fn(query, buildMatchInfo(query));
-      const code = Number(result?.code) || 404;
-      const body = { code, url: result?.url || null };
+      let code = Number(result?.code) || 404;
+
+      let url = result?.url || null;
+      let reason = result?.reason || 'unknown';
+      const debug = result?.debug;
+
+      if (code === 200 && url) {
+        // 拦截占位片段，避免前端把不可播放的结果当成解锁成功
+        if (query.skipValidate !== '1') {
+          const totalBytes = await getAudioTotalBytes(toHttps(url));
+          if (totalBytes > 0 && totalBytes < MIN_VALID_AUDIO_BYTES) {
+            code = 404;
+            reason = 'stub-audio';
+            url = null;
+          }
+        }
+      }
+
+      if (code === 200 && url) {
+        // 音源直链普遍不含 CORS 头，而前端强制 crossOrigin="anonymous"，
+        // 必须换成同源代理路径才能播放；raw=1 可拿到原始直链（供非浏览器场景）。
+        if (query.raw === '1' || query.raw === 'true') {
+          url = toHttps(url);
+        } else {
+          url = buildProxyUrl(url) || toHttps(url);
+        }
+      }
+
+      const body = { code, url };
       if (code !== 200) {
-        body.reason = result?.reason || 'unknown';
+        body.reason = reason;
         body.source = source;
+      }
+      // debug=1 时附带匹配诊断（选中曲目、候选列表），便于排查音源错配
+      if (query.debug === '1' && debug) {
+        body.debug = debug;
       }
       res.status(200).json(body);
     } catch (err) {

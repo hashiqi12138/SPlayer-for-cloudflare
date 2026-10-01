@@ -96,6 +96,38 @@ export async function postTextAny(httpsUrl, body, options = {}) {
 }
 
 /**
+ * 试探音频资源的总字节数（只取 1 字节，代价很低）
+ *
+ * 用途：识别音源下发的「占位片段」。实测酷我对非中国大陆出口 IP 会返回
+ * 一个固定的 15.6KB 音频（同一资源被套用到所有歌曲），它的确是合法 MP3、
+ * 能通过 Range 校验，但只有约 0.4 秒，直接返回会让前端「假成功」并播放失败。
+ *
+ * @param {string} url 音频直链
+ * @param {number} [timeout]
+ * @returns {Promise<number>} 总字节数；无法判定时返回 0
+ */
+export async function getAudioTotalBytes(url, timeout = 10000) {
+  try {
+    const res = await fetch(url, {
+      headers: { Range: 'bytes=0-1', 'User-Agent': DEFAULT_UA },
+      signal: AbortSignal.timeout(timeout),
+    });
+    // 优先用 Content-Range: bytes 0-1/12345 里的总长
+    const contentRange = res.headers.get('content-range');
+    if (contentRange && contentRange.includes('/')) {
+      const total = Number(contentRange.split('/').pop());
+      if (Number.isFinite(total) && total > 0) return total;
+    }
+    const len = Number(res.headers.get('content-length'));
+    if (Number.isFinite(len) && len > 0) return len;
+    return 0;
+  } catch (e) {
+    // 探测失败不应导致解锁失败，交由调用方按「无法判定」处理
+    return 0;
+  }
+}
+
+/**
  * 把播放直链升级为 https。
  * 实测酷我 CDN（kw-er.kuwo.cn / bd-er.kuwo.cn）均支持 https，
  * 若返回 http 直链，在 https 页面上会触发混合内容拦截而无法播放。
@@ -104,4 +136,4 @@ export function toHttps(url) {
   return String(url || '').replace(/^http:/, 'https:');
 }
 
-export default { getText, getTextAny, getJson, postTextAny, toHttps };
+export default { getText, getTextAny, getJson, postTextAny, getAudioTotalBytes, toHttps };

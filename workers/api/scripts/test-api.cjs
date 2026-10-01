@@ -301,27 +301,44 @@ async function runTests() {
   // 三个音源相互独立，前端并发请求后取第一个成功的，因此逐个校验。
   // 注意：这些接口依赖第三方音源，若上游变更会在此暴露。
   {
-    const httpsMp3 = /^https:\/\/.+\.(mp3|flac|m4a)/i;
-
     // 上游对出口 IP 的限制（非中国大陆出口常见），属环境问题而非实现缺陷，
     // 与网易云 -462 风控同类处理，单独归入「受限」不计失败。
-    const ENV_REASONS = new Set(['source-blocked', 'region-locked', 'timeout']);
+    const ENV_REASONS = new Set([
+      'source-blocked',
+      'region-locked',
+      'stub-audio',
+      'timeout',
+    ]);
 
-    const evalUnblockResult = (j, strict, allowEnvBlock) => {
-      if (
-        j.code === 200 &&
-        typeof j.url === 'string' &&
-        j.url.startsWith('https://')
-      ) {
-        if (!strict || httpsMp3.test(j.url)) return { pass: true };
-        return { pass: false, msg: `直链格式异常: ${j.url}` };
+    const evalUnblockResult = (j, { allowEnvBlock = false, expectBlocked = false } = {}) => {
+      if (expectBlocked) {
+        if (j.code === 404 && ENV_REASONS.has(j.reason)) return { pass: true };
+        return {
+          pass: false,
+          msg: `期望被环境限制，实际 code=${j.code} reason=${j.reason || ''}`,
+        };
+      }
+
+      if (j.code === 200 && typeof j.url === 'string' && j.url) {
+        // 默认返回同源代理路径（/api/unblock/audio/...），供 raw=1 时可能是原始 https 直链
+        const shapeOk =
+          j.url.startsWith('/api/unblock/audio/') ||
+          j.url.startsWith('https://');
+        if (!shapeOk) {
+          return { pass: false, msg: `直链形态异常: ${j.url}` };
+        }
+        // 前端会从 URL 推断音频格式，扩展名必须保留
+        if (!/\.(mp3|flac|m4a|wav)(?:[?#]|$)/i.test(j.url)) {
+          return { pass: false, msg: `直链缺少音频扩展名: ${j.url}` };
+        }
+        return { pass: true };
       }
       if (allowEnvBlock && ENV_REASONS.has(j.reason)) {
         return { pass: true, blocked: true, msg: `上游环境限制 (${j.reason})` };
       }
       return {
         pass: false,
-        msg: `期望 200+https 直链，实际 code=${j.code} url=${j.url} reason=${j.reason || ''}`,
+        msg: `期望 200+音频直链，实际 code=${j.code} url=${j.url} reason=${j.reason || ''}`,
       };
     };
 
@@ -337,20 +354,72 @@ async function runTests() {
       {
         name: '解锁-酷我',
         path: '/api/unblock/kuwo?keyword=' + encodeURIComponent('灰姑娘-梁咏琪'),
-        // 酷我实测在各环境均可用，按硬断言校验
-        verify: (j) => evalUnblockResult(j, true, false),
+        // 境内出口可拿到真实完整歌曲；Cloudflare 出口会被上游下发占位片段，
+        // 接口已识别并拒绝（reason=stub-audio），归入受限而非失败。
+        verify: (j) => evalUnblockResult(j, { allowEnvBlock: true }),
+      },
+      {
+        name: '解锁-音频代理可播放',
+        path: '/api/unblock/kuwo?keyword=' + encodeURIComponent('灰姑娘-梁咏琪'),
+        // 前端 AudioElementPlayer 强制 crossOrigin="anonymous"，
+        // 酷我等音源直链不含 CORS 头，必须经同源代理才能播放。
+        // 这里实际拉一次流，同时校验音频类型与 CORS 头。
+        verify: async (j) => {
+          if (j.code !== 200 || !j.url) {
+            // 上游未给出有效直链时不具备拉流条件，按环境限制归类
+            if (ENV_REASONS.has(j.reason)) {
+              return {
+                pass: true,
+                blocked: true,
+                msg: `无有效直链，跳过拉流校验 (${j.reason})`,
+              };
+            }
+            return { pass: false, msg: `未取到直链 (code=${j.code})` };
+          }
+          const abs = new URL(j.url, BASE_URL).toString();
+          const res = await fetch(abs, {
+            headers: {
+              Range: 'bytes=0-2047',
+              Origin: 'https://dev.splayer-dvj.pages.dev',
+            },
+            signal: AbortSignal.timeout(30000),
+          });
+          const ct = res.headers.get('content-type') || '';
+          const acao = res.headers.get('access-control-allow-origin');
+          const bytes = (await res.arrayBuffer()).byteLength;
+
+          if (res.status !== 200 && res.status !== 206) {
+            return { pass: false, msg: `代理拉流 HTTP ${res.status}` };
+          }
+          if (!/audio|octet-stream/i.test(ct)) {
+            return { pass: false, msg: `Content-Type 异常: ${ct}` };
+          }
+          if (!acao) {
+            return {
+              pass: false,
+              msg: '缺少 CORS 头，crossOrigin=anonymous 会被浏览器拒绝',
+            };
+          }
+          if (!bytes) {
+            return { pass: false, msg: '未拉到音频数据' };
+          }
+          return {
+            pass: true,
+            msg: `HTTP ${res.status} ${ct} ${bytes}B CORS=${acao}`,
+          };
+        },
       },
       {
         name: '解锁-波点',
         path: '/api/unblock/bodian?keyword=' + encodeURIComponent('灰姑娘-梁咏琪'),
         // 波点对 Cloudflare 境外出口会返回「仅限中国大陆地区使用」
-        verify: (j) => evalUnblockResult(j, true, true),
+        verify: (j) => evalUnblockResult(j, { allowEnvBlock: true }),
       },
       {
         name: '解锁-网易云',
         path: '/api/unblock/netease?id=33894312',
         // 聚合接口对 Cloudflare 出口返回 403
-        verify: (j) => evalUnblockResult(j, false, true),
+        verify: (j) => evalUnblockResult(j, { allowEnvBlock: true }),
       },
       {
         name: '解锁-空关键词',
@@ -368,48 +437,57 @@ async function runTests() {
     for (const c of checks) {
       const idx = testCases.length + 1;
       process.stdout.write(`[${idx}/${idx}] ${c.name}... `);
-      let entry;
-      try {
-        const res = await fetch(BASE_URL + c.path, {
-          signal: AbortSignal.timeout(40000),
-        });
-        const text = await res.text();
-        let json = null;
-        try {
-          json = JSON.parse(text);
-        } catch (e) {
-          /* 交给下面的非 JSON 分支处理 */
-        }
 
-        if (!json) {
+      // 解锁音源在跨境链路上偶发抖动（实测 0.9～3.3s，偶发尖峰），
+      // 因此给一次重试机会，避免把网络抖动记成失败。
+      let entry;
+      const MAX_ATTEMPTS = 2;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+          const res = await fetch(BASE_URL + c.path, {
+            signal: AbortSignal.timeout(60000),
+          });
+          const text = await res.text();
+          let json = null;
+          try {
+            json = JSON.parse(text);
+          } catch (e) {
+            /* 交给下面的非 JSON 分支处理 */
+          }
+
+          if (!json) {
+            entry = {
+              name: c.name,
+              path: c.path,
+              pass: false,
+              status: res.status,
+              errorMsg: `非 JSON 响应 (HTTP ${res.status})`,
+            };
+          } else {
+            const verdict = await c.verify(json);
+            entry = {
+              name: c.name,
+              path: c.path,
+              pass: verdict.pass,
+              blocked: !!verdict.blocked,
+              status: res.status,
+              responseCode:
+                json.code !== undefined ? json.code : res.status,
+              errorMsg: verdict.pass ? verdict.msg || null : verdict.msg,
+            };
+          }
+          break;
+        } catch (e) {
+          // 首次失败且还有重试机会时不记录，直接重试
+          if (attempt < MAX_ATTEMPTS) continue;
           entry = {
             name: c.name,
             path: c.path,
             pass: false,
-            status: res.status,
-            errorMsg: `非 JSON 响应 (HTTP ${res.status})`,
-          };
-        } else {
-          const verdict = c.verify(json);
-          entry = {
-            name: c.name,
-            path: c.path,
-            pass: verdict.pass,
-            blocked: !!verdict.blocked,
-            status: res.status,
-            responseCode:
-              json.code !== undefined ? json.code : res.status,
-            errorMsg: verdict.pass ? verdict.msg || null : verdict.msg,
+            status: 'error',
+            errorMsg: `${e.message}（已重试 ${MAX_ATTEMPTS} 次）`,
           };
         }
-      } catch (e) {
-        entry = {
-          name: c.name,
-          path: c.path,
-          pass: false,
-          status: 'error',
-          errorMsg: e.message,
-        };
       }
 
       testCases.push(entry);
