@@ -1,21 +1,29 @@
-# 换行符策略
+# 换行符策略：本仓库内所有文本文件统一使用 LF
 #
-# 背景：本仓库主要在 Windows 上开发，git 默认 core.autocrlf=true 会把文本文件
-# 检出成 CRLF。对 .sh 来说这是致命的 —— bash 会把行尾的 \r 当成命令的一部分，
-# 报出 `$'\r': command not found` 这类难以定位的错误。
-# 因此这里显式规定：shell 脚本永远保持 LF，与工作区设置无关。
+# 为什么用 eol=lf，而不是交给各人的 core.autocrlf
+# ------------------------------------------------
+# 本仓库主要在 Windows 上开发，而 git 默认的 core.autocrlf=true 会让工作区
+# 变成 CRLF。于是只要有任何工具（编辑器、脚本、生成器）按 LF 写文件，git 就会认为
+# 「工作区的表示方式与检出策略不符」而把文件标成已修改 —— 内容其实一字不差
+# （`git diff` 为空），纯属噪音，还很容易被 `git add -A` 顺手带进提交。
+#
+# 另外两类文件对换行符是**硬要求**，不是风格问题：
+#   *.sh  /  *.patch  行尾的 \r 会被 bash 当成命令的一部分，报
+#                     `$'\r': command not found`；补丁里的 \r 会让 git apply
+#                     的上下文匹配失败。
+#
+# 统一成 LF 之后，仓库行为不再依赖每个开发者的 core.autocrlf 设置。
+#
+# 关于 .ps1：换行符无关紧要，但**必须带 UTF-8 BOM** —— PowerShell 5.1 会把
+# 无 BOM 的 UTF-8 按系统 ANSI 代码页解码，脚本里的中文会变成乱码并破坏语法。
+# BOM 与换行符互相独立，CI 中另有专门校验。
+#
+# 子模块（splayer-frontend/、workers/api/ncm-source/）在本仓库里是 gitlink，
+# 其内容的换行符由各自仓库的 .gitattributes 决定，这里的规则不会作用到它们内部。
 
-*.sh          text eol=lf
+* text=auto eol=lf
 
-# PowerShell 脚本必须保留 UTF-8 BOM：PowerShell 5.1 会把无 BOM 的 UTF-8
-# 按系统 ANSI(GBK) 解码，中文注释和 emoji 会变成乱码，甚至破坏语法结构。
-# 这里声明为 text 但交给 .ps1 自带 BOM 控制，不做 eol 转换以外的处理。
-*.ps1         text eol=crlf
-
-# 补丁文件必须保持 LF：patches/*.patch 是用 git diff 生成的，
-# 上下文行一旦被转成 CRLF，git apply 的匹配就会失败。
-*.patch       text eol=lf
-
-# 上游同步进来的子模块内容不参与属性判定
-splayer-frontend/**       -text
-workers/api/ncm-source/** -text
+# 下面几行与上面的规则等价，单独列出是为了让「哪些文件对换行符有硬要求」一目了然。
+*.sh    text eol=lf
+*.patch text eol=lf
+*.ps1   text eol=lf
