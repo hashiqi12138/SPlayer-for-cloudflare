@@ -416,11 +416,23 @@ const ourSourceFiles = walk(ROOT)
     const target = process.platform === 'win32' ? toPosixPath(script) : script
     const r = run(bash.cmd, ['-lc', target], { stdio: 'pipe' })
     const out = `${r.stdout || ''}${r.stderr || ''}`
-    const offenders = out
-      .split('\n')
-      .filter((l) => l.includes('[FAIL]'))
-      .map((l) => l.trim())
-    record(r.status === 0, '部署脚本自检通过', offenders)
+    const lines = out.split('\n').filter((l) => l.trim())
+    const offenders = lines.filter((l) => l.includes('[FAIL]')).map((l) => l.trim())
+
+    // 只列出 [FAIL] 行是不够的：自检若「中途异常退出」，一条 [FAIL] 都不会打印，
+    // 结果就变成「某项失败但看不到任何原因」。所以失败时把输出末尾一并带出来，
+    // 保证任何形式的失败都留得下线索（这一段也会进 CI 的 job summary）。
+    const details =
+      r.status === 0
+        ? offenders
+        : offenders.length > 0
+          ? offenders
+          : [
+              '自检没有输出 [FAIL]，多半是中途异常退出。输出末尾：',
+              ...lines.slice(-20).map((l) => l.trim()),
+            ]
+
+    record(r.status === 0, '部署脚本自检通过', details)
   }
 }
 

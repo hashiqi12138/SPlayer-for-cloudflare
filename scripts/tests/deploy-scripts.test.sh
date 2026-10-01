@@ -28,7 +28,13 @@
 #   7  前置检查         缺 node / 缺 npx 时给出可操作提示，而不是误导性报错
 #   8  平台分派         deploy.mjs 的参数与用法
 
-set -uo pipefail
+# 只用 pipefail，刻意不加 -u / -e。
+#
+# -u 遇到未定义变量会**整体中止**，表现出来就是「一条 [FAIL] 都没打印，但退出码非 0」，
+# 排查时没有任何线索（CI 上就这么栽过一次：Linux 上只看到自检失败，看不到失败在哪）。
+# -e 同理：一条断言失败就吞掉后面的检查。
+# 自检要的是「逐条报告、一次看完」，所以把控制权留给 chk 系列函数。
+set -o pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPTS="$REPO/scripts"
@@ -59,7 +65,18 @@ fi
 TMPDIR_RUN="$(mktemp -d "${TMPDIR:-/tmp}/splayer-deploy-test.XXXXXX")"
 FAKEBIN="$TMPDIR_RUN/fakebin"
 mkdir -p "$FAKEBIN"
-trap 'rm -rf "$TMPDIR_RUN"' EXIT
+
+# 中途退出（环境异常、脚本被改坏、意外的非零退出）必须留下痕迹。
+# 否则调用方只看到「退出码非 0 且没有 [FAIL]」，等于没有信息。
+REACHED_SUMMARY=0
+cleanup() {
+  local rc=$?
+  if [ "$REACHED_SUMMARY" != "1" ]; then
+    printf '  [FAIL] 自检异常中断（未跑到汇总），退出码 %s\n' "$rc"
+  fi
+  rm -rf "$TMPDIR_RUN"
+}
+trap cleanup EXIT
 
 pass=0
 fail=0
@@ -384,4 +401,5 @@ fi
 echo "════════════════════════════════════"
 printf '  通过 %d / 失败 %d / 跳过 %d\n' "$pass" "$fail" "$skip"
 echo "════════════════════════════════════"
+REACHED_SUMMARY=1
 [ "$fail" -eq 0 ]
