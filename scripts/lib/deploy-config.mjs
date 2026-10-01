@@ -1,0 +1,74 @@
+/**
+ * deploy.config.json 的读取、校验与占位符映射
+ *
+ * 为什么单独抽出来
+ * ----------------
+ * 同一份配置有三处要读：
+ *   1. scripts/prepare-pages.mjs  部署时注入真实地址
+ *   2. scripts/verify.mjs         校验配置完整性与占位符一一对应
+ *   3. scripts/deploy*.{ps1,sh}   取 Pages 项目名 / 分支 / 访问地址
+ * 如果各自维护「需要哪些字段」「占位符叫什么」，迟早会出现「部署能跑但校验通过不了」
+ * 或反过来的情况。这里作为唯一事实来源。
+ *
+ * 与 workers/api/scripts/config.cjs 的关系：那个是给探针脚本用的 CommonJS 版本，
+ * 面向「临时调试」场景；这里是给部署链路用的 ESM 版本。两者读的是同一个文件。
+ */
+
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+export const ROOT = path.resolve(__dirname, '..', '..')
+export const CONFIG_FILE = path.join(ROOT, 'deploy.config.json')
+
+/** 部署链路必需的字段 */
+export const REQUIRED_CONFIG_KEYS = ['apiWorkerUrl', 'proxyWorkerUrl', 'pagesProject']
+
+/** 可选字段（缺失时由调用方给默认值） */
+export const OPTIONAL_CONFIG_KEYS = ['pagesBranch', 'pagesUrl']
+
+/**
+ * Pages Functions 模板里的占位符 → deploy.config.json 字段
+ *
+ * 模板侧只写占位符，真实地址只在配置里维护；这张表是两者唯一的连接点。
+ * verify 会同时检查「模板里的占位符都在表里」和「表里的占位符模板都在用」，
+ * 避免任一侧单方面改动后悄悄失效。
+ */
+export const PLACEHOLDER_TO_CONFIG_KEY = {
+  __API_WORKER_URL__: 'apiWorkerUrl',
+  __PROXY_WORKER_URL__: 'proxyWorkerUrl',
+}
+
+/** 匹配形如 __FOO_BAR__ 的占位符 */
+export const PLACEHOLDER_RE = /__[A-Z0-9_]+__/g
+
+/** 读取并校验配置；不合法时抛错（由调用方决定怎么呈现） */
+export function loadConfig(file = CONFIG_FILE) {
+  if (!fs.existsSync(file)) {
+    throw new Error(`缺少 ${path.relative(ROOT, file)}：该文件是地址的唯一事实来源，请从仓库恢复`)
+  }
+
+  let cfg
+  try {
+    cfg = JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch (e) {
+    throw new Error(`${path.relative(ROOT, file)} 不是合法 JSON：${e.message}`)
+  }
+
+  const missing = REQUIRED_CONFIG_KEYS.filter((k) => !cfg[k])
+  if (missing.length) {
+    throw new Error(`${path.relative(ROOT, file)} 缺少必需字段：${missing.join(', ')}`)
+  }
+
+  return cfg
+}
+
+/** 把配置解析成占位符替换表 */
+export function resolveReplacements(cfg) {
+  const replacements = {}
+  for (const [token, key] of Object.entries(PLACEHOLDER_TO_CONFIG_KEY)) {
+    replacements[token] = cfg[key]
+  }
+  return replacements
+}

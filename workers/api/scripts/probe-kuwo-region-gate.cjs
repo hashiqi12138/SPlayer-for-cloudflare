@@ -27,17 +27,17 @@ const KW_DES = require('url').pathToFileURL(
     'unblock',
     'kwDES.js',
   ),
-).href;
-const cfg = require('./config.cjs');
+).href
+const cfg = require('./config.cjs')
 
-const WORKER = cfg.apiWorkerUrl;
+const WORKER = cfg.apiWorkerUrl
 
-const PACKAGE_NAME = 'kwplayer_ar_5.1.0.0_B_jiakong_vh.apk';
-const OKHTTP = 'okhttp/3.10.0';
-const RID = '479718674'; // 灰姑娘 (Live) / 梁咏琪，境内实测 2046KB
+const PACKAGE_NAME = 'kwplayer_ar_5.1.0.0_B_jiakong_vh.apk'
+const OKHTTP = 'okhttp/3.10.0'
+const RID = '479718674' // 灰姑娘 (Live) / 梁咏琪，境内实测 2046KB
 
-const STUB_MARKER = '1325645003';
-const MIN_REAL_BYTES = 64 * 1024;
+const STUB_MARKER = '1325645003'
+const MIN_REAL_BYTES = 64 * 1024
 
 const HEADER_CASES = [
   ['基线', {}],
@@ -54,63 +54,67 @@ const HEADER_CASES = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     },
   ],
-];
+]
 
 async function sizeOf(url) {
   try {
     const res = await fetch(url, {
       headers: { Range: 'bytes=0-1' },
       signal: AbortSignal.timeout(60000),
-    });
-    const cr = res.headers.get('content-range');
-    const len = res.headers.get('content-length');
-    const total = cr ? Number(cr.split('/').pop()) : Number(len);
-    return Number.isFinite(total) ? total : 0;
+    })
+    const cr = res.headers.get('content-range')
+    const len = res.headers.get('content-length')
+    const total = cr ? Number(cr.split('/').pop()) : Number(len)
+    return Number.isFinite(total) ? total : 0
   } catch (e) {
-    return -1;
+    return -1
   }
 }
 
 const verdict = (url, bytes) => {
-  if (!url) return '❌ 无直链';
-  if (url.includes(STUB_MARKER)) return '❌ 占位片段';
-  if (bytes < 0) return '❓ 无法判定';
-  if (bytes === 0) return '❓ 未知';
-  return bytes > MIN_REAL_BYTES ? '✅ 完整歌曲' : '❌ 片段';
-};
+  if (!url) return '❌ 无直链'
+  if (url.includes(STUB_MARKER)) return '❌ 占位片段'
+  if (bytes < 0) return '❓ 无法判定'
+  if (bytes === 0) return '❓ 未知'
+  return bytes > MIN_REAL_BYTES ? '✅ 完整歌曲' : '❌ 片段'
+}
 
-const fmt = (bytes) => (bytes > 0 ? `${(bytes / 1024).toFixed(1)}KB` : '-');
+const fmt = (bytes) => (bytes > 0 ? `${(bytes / 1024).toFixed(1)}KB` : '-')
 
 /** A. 境内直连，伪造各种 IP 头 */
 async function runLocal() {
-  console.log('=== A. 反向验证：境内直连 + 伪造 IP 头 ===');
-  console.log('（本机在境内，基线应为完整歌曲；若伪造境外 IP 后仍是完整歌曲，说明 IP 头不被信任）\n');
-  const { encryptQuery } = await import(KW_DES);
+  console.log('=== A. 反向验证：境内直连 + 伪造 IP 头 ===')
+  console.log(
+    '（本机在境内，基线应为完整歌曲；若伪造境外 IP 后仍是完整歌曲，说明 IP 头不被信任）\n',
+  )
+  const { encryptQuery } = await import(KW_DES)
 
   for (const [label, extra] of HEADER_CASES) {
     const q = encryptQuery(
       `corp=kuwo&source=${PACKAGE_NAME}&p2p=1&type=convert_url2&sig=0&format=mp3&rid=${RID}`,
-    );
+    )
     try {
       const res = await fetch(`https://mobi.kuwo.cn/mobi.s?f=kuwo&q=${q}`, {
         headers: { 'User-Agent': OKHTTP, ...extra },
-      });
-      const text = await res.text();
-      const m = text.match(/http[^\s$"]+/);
-      const url = m ? m[0] : null;
-      const bytes = url ? await sizeOf(url) : 0;
-      const tail = url ? url.split('/').slice(-1)[0].slice(0, 30) : '-';
-      console.log(`  ${verdict(url, bytes)}  ${label.padEnd(24)} ${fmt(bytes).padStart(9)}  ${tail}`);
+      })
+      const text = await res.text()
+      const m = text.match(/http[^\s$"]+/)
+      const url = m ? m[0] : null
+      const bytes = url ? await sizeOf(url) : 0
+      const tail = url ? url.split('/').slice(-1)[0].slice(0, 30) : '-'
+      console.log(
+        `  ${verdict(url, bytes)}  ${label.padEnd(24)} ${fmt(bytes).padStart(9)}  ${tail}`,
+      )
     } catch (e) {
-      console.log(`  💥  ${label.padEnd(24)} ${e.message}`);
+      console.log(`  💥  ${label.padEnd(24)} ${e.message}`)
     }
   }
 }
 
 /** B. 经 Cloudflare 出口，伪造境内 IP 头 / 换 UA / 加 Referer */
 async function runCloudflare() {
-  console.log('\n=== B. 正向验证：Cloudflare 出口 + 伪造境内 IP 头 ===');
-  console.log('（基线为占位片段；若伪造境内 IP 后变成完整歌曲，说明可用请求头绕过）\n');
+  console.log('\n=== B. 正向验证：Cloudflare 出口 + 伪造境内 IP 头 ===')
+  console.log('（基线为占位片段；若伪造境内 IP 后变成完整歌曲，说明可用请求头绕过）\n')
 
   const map = {
     'X-Forwarded-For': 'xff',
@@ -118,32 +122,34 @@ async function runCloudflare() {
     'Client-IP': 'clientip',
     Referer: 'referer',
     'User-Agent': 'ua',
-  };
+  }
 
   for (const [label, extra] of HEADER_CASES) {
     const params = Object.entries(extra)
       .map(([h, v]) => `&${map[h]}=${encodeURIComponent(v)}`)
-      .join('');
+      .join('')
     const url =
       `${WORKER}/api/unblock/kuwo?debug=1&skipValidate=1&raw=1` +
-      `&keyword=${encodeURIComponent('灰姑娘-梁咏琪')}${params}`;
+      `&keyword=${encodeURIComponent('灰姑娘-梁咏琪')}${params}`
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(60000) });
-      const j = await res.json();
-      const bytes = j.url ? await sizeOf(j.url) : 0;
-      const tail = j.url ? j.url.split('/').slice(-1)[0].slice(0, 30) : '-';
-      console.log(`  ${verdict(j.url, bytes)}  ${label.padEnd(24)} ${fmt(bytes).padStart(9)}  ${tail}`);
+      const res = await fetch(url, { signal: AbortSignal.timeout(60000) })
+      const j = await res.json()
+      const bytes = j.url ? await sizeOf(j.url) : 0
+      const tail = j.url ? j.url.split('/').slice(-1)[0].slice(0, 30) : '-'
+      console.log(
+        `  ${verdict(j.url, bytes)}  ${label.padEnd(24)} ${fmt(bytes).padStart(9)}  ${tail}`,
+      )
     } catch (e) {
-      console.log(`  💥  ${label.padEnd(24)} ${e.message}`);
+      console.log(`  💥  ${label.padEnd(24)} ${e.message}`)
     }
   }
 }
 
-(async () => {
-  const mode = process.argv[2] || 'both';
-  if (mode === 'local' || mode === 'both') await runLocal();
-  if (mode === 'cloudflare' || mode === 'both') await runCloudflare();
+;(async () => {
+  const mode = process.argv[2] || 'both'
+  if (mode === 'local' || mode === 'both') await runLocal()
+  if (mode === 'cloudflare' || mode === 'both') await runCloudflare()
 
-  console.log('\n结论：若 A 中伪造境外 IP 仍是完整歌曲、且 B 中伪造境内 IP 仍是占位片段，');
-  console.log('      则酷我仅按真实 TCP 出口 IP 判定，请求头无法绕过。');
-})();
+  console.log('\n结论：若 A 中伪造境外 IP 仍是完整歌曲、且 B 中伪造境内 IP 仍是占位片段，')
+  console.log('      则酷我仅按真实 TCP 出口 IP 判定，请求头无法绕过。')
+})()

@@ -8,26 +8,26 @@
  *   node scripts/test-api.cjs http://127.0.0.1:8788
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('fs')
+const path = require('path')
 
-const CONFIG_PATH = path.resolve(__dirname, '..', '..', '..', 'deploy.config.json');
+const CONFIG_PATH = path.resolve(__dirname, '..', '..', '..', 'deploy.config.json')
 
 function load() {
   try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
   } catch (e) {
-    console.error(`无法读取部署配置: ${CONFIG_PATH}`);
-    console.error('deploy.config.json 是地址的唯一事实来源，请确认它存在且为合法 JSON。');
-    process.exit(2);
+    console.error(`无法读取部署配置: ${CONFIG_PATH}`)
+    console.error('deploy.config.json 是地址的唯一事实来源，请确认它存在且为合法 JSON。')
+    process.exit(2)
   }
 }
 
-const cfg = load();
+const cfg = load()
 
 module.exports = {
   configPath: CONFIG_PATH,
   apiWorkerUrl: cfg.apiWorkerUrl,
   proxyWorkerUrl: cfg.proxyWorkerUrl,
   pagesUrl: cfg.pagesUrl,
-};
+}

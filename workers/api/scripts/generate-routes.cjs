@@ -1,60 +1,60 @@
 /**
  * 自动生成路由脚本 v2
- * 
+ *
  * 更健壮的 data 对象提取（括号匹配算法）
- * 
+ *
  * 用法: node scripts/generate-routes.cjs
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('fs')
+const path = require('path')
 
-const MODULE_DIR = path.join(__dirname, '..', 'ncm-source', 'module');
-const OUTPUT_FILE = path.join(__dirname, '..', 'src', 'generated-routes.js');
+const MODULE_DIR = path.join(__dirname, '..', 'ncm-source', 'module')
+const OUTPUT_FILE = path.join(__dirname, '..', 'src', 'generated-routes.js')
 
 /**
  * 找到匹配的闭括号位置
  */
 function findMatchingBrace(code, startIndex) {
-  let depth = 0;
-  let inString = false;
-  let stringChar = '';
-  let escape = false;
-  
+  let depth = 0
+  let inString = false
+  let stringChar = ''
+  let escape = false
+
   for (let i = startIndex; i < code.length; i++) {
-    const char = code[i];
-    
+    const char = code[i]
+
     if (escape) {
-      escape = false;
-      continue;
+      escape = false
+      continue
     }
-    
+
     if (inString) {
       if (char === '\\') {
-        escape = true;
+        escape = true
       } else if (char === stringChar) {
-        inString = false;
+        inString = false
       }
-      continue;
+      continue
     }
-    
+
     if (char === '"' || char === "'" || char === '`') {
-      inString = true;
-      stringChar = char;
-      continue;
+      inString = true
+      stringChar = char
+      continue
     }
-    
+
     if (char === '{') {
-      depth++;
+      depth++
     } else if (char === '}') {
-      depth--;
+      depth--
       if (depth === 0) {
-        return i;
+        return i
       }
     }
   }
-  
-  return -1;
+
+  return -1
 }
 
 /**
@@ -63,147 +63,152 @@ function findMatchingBrace(code, startIndex) {
  */
 function extractDataObject(content) {
   // 模式 1: const data = {...}
-  const match = content.match(/const data\s*=\s*\{/);
+  const match = content.match(/const data\s*=\s*\{/)
   if (match) {
-    const openBraceIndex = match.index + match[0].length - 1;
-    const closeBraceIndex = findMatchingBrace(content, openBraceIndex);
+    const openBraceIndex = match.index + match[0].length - 1
+    const closeBraceIndex = findMatchingBrace(content, openBraceIndex)
     if (closeBraceIndex !== -1) {
-      const full = content.substring(match.index, closeBraceIndex + 1);
-      return full.replace(/^const data\s*=\s*/, '').trim();
+      const full = content.substring(match.index, closeBraceIndex + 1)
+      return full.replace(/^const data\s*=\s*/, '').trim()
     }
   }
-  
+
   // 模式 2: request(path, {...}, option) — data 直接写在调用里
   // 找到 request( 后的第一个 {
-  const reqMatch = content.match(/request\(\s*[`'"]/);
+  const reqMatch = content.match(/request\(\s*[`'"]/)
   if (reqMatch) {
     // 从 request( 位置往后找第一个逗号后的 {
-    const startIdx = reqMatch.index;
+    const startIdx = reqMatch.index
     // 找到第一个参数结束（逗号）
-    let parenDepth = 0;
-    let inString = false;
-    let stringChar = '';
-    let escape = false;
-    let commaPos = -1;
-    
+    let parenDepth = 0
+    let inString = false
+    let stringChar = ''
+    let escape = false
+    let commaPos = -1
+
     for (let i = startIdx; i < content.length; i++) {
-      const char = content[i];
-      
-      if (escape) { escape = false; continue; }
+      const char = content[i]
+
+      if (escape) {
+        escape = false
+        continue
+      }
       if (inString) {
-        if (char === '\\') escape = true;
-        else if (char === stringChar) inString = false;
-        continue;
+        if (char === '\\') escape = true
+        else if (char === stringChar) inString = false
+        continue
       }
       if (char === '"' || char === "'" || char === '`') {
-        inString = true; stringChar = char; continue;
+        inString = true
+        stringChar = char
+        continue
       }
-      if (char === '(') parenDepth++;
+      if (char === '(') parenDepth++
       else if (char === ')') {
-        parenDepth--;
-        if (parenDepth === 0) break;
+        parenDepth--
+        if (parenDepth === 0) break
       }
       if (char === ',' && parenDepth === 1) {
-        commaPos = i;
-        break;
+        commaPos = i
+        break
       }
     }
-    
+
     if (commaPos > 0) {
       // 从逗号后找第一个 {
-      const afterComma = content.substring(commaPos + 1);
-      const braceMatch = afterComma.match(/^\s*\{/);
+      const afterComma = content.substring(commaPos + 1)
+      const braceMatch = afterComma.match(/^\s*\{/)
       if (braceMatch) {
-        const openIdx = commaPos + 1 + braceMatch.index + braceMatch[0].length - 1;
-        const closeIdx = findMatchingBrace(content, openIdx);
+        const openIdx = commaPos + 1 + braceMatch.index + braceMatch[0].length - 1
+        const closeIdx = findMatchingBrace(content, openIdx)
         if (closeIdx > 0) {
-          return content.substring(openIdx, closeIdx + 1);
+          return content.substring(openIdx, closeIdx + 1)
         }
       }
     }
   }
-  
-  return null;
+
+  return null
 }
 
 function detectCrypto(content) {
   // createOption(query, 'weapi') 形式
-  const match = content.match(/createOption\(query,\s*['"](\w+)['"]\)/);
-  if (match) return match[1];
-  
+  const match = content.match(/createOption\(query,\s*['"](\w+)['"]\)/)
+  if (match) return match[1]
+
   // createOption(query) 形式 — 默认 crypto 为空（即 api 明文模式）
   // 对应 option.js: crypto = query.crypto || crypto || ''
   if (content.match(/createOption\(query\s*\)/)) {
-    return 'api';
+    return 'api'
   }
-  
-  return 'api'; // 默认走明文
+
+  return 'api' // 默认走明文
 }
 
 function detectApiPath(content) {
-  const match = content.match(/request\(\s*`([^`]+)`/);
-  if (match) return match[1];
-  
-  const match2 = content.match(/request\(\s*'([^']+)'/);
-  if (match2) return match2[1];
-  
-  const match3 = content.match(/request\(\s*"([^"]+)"/);
-  if (match3) return match3[1];
-  
-  return null;
+  const match = content.match(/request\(\s*`([^`]+)`/)
+  if (match) return match[1]
+
+  const match2 = content.match(/request\(\s*'([^']+)'/)
+  if (match2) return match2[1]
+
+  const match3 = content.match(/request\(\s*"([^"]+)"/)
+  if (match3) return match3[1]
+
+  return null
 }
 
 function moduleNameToRoute(filename) {
-  return '/' + filename.replace(/_/g, '/').replace('.js', '');
+  return '/' + filename.replace(/_/g, '/').replace('.js', '')
 }
 
 function isComplexModule(content) {
   // 多步请求
-  if (content.includes('.then(') && (content.match(/request\(/g) || []).length > 1) return true;
-  
+  if (content.includes('.then(') && (content.match(/request\(/g) || []).length > 1) return true
+
   // 有 try/catch 包裹复杂逻辑
-  if (content.includes('try {') && content.includes('catch')) return true;
-  
+  if (content.includes('try {') && content.includes('catch')) return true
+
   // 动态 path
-  if (content.includes('${') && content.includes('request(`')) return true;
-  
-  return false;
+  if (content.includes('${') && content.includes('request(`')) return true
+
+  return false
 }
 
 function main() {
-  const files = fs.readdirSync(MODULE_DIR).filter(f => f.endsWith('.js'));
-  const routes = [];
-  const skipped = [];
-  const errors = [];
-  
+  const files = fs.readdirSync(MODULE_DIR).filter((f) => f.endsWith('.js'))
+  const routes = []
+  const skipped = []
+  const errors = []
+
   for (const file of files) {
-    const filePath = path.join(MODULE_DIR, file);
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const routePath = moduleNameToRoute(file);
-    
+    const filePath = path.join(MODULE_DIR, file)
+    const content = fs.readFileSync(filePath, 'utf-8')
+    const routePath = moduleNameToRoute(file)
+
     // 跳过复杂模块
     if (isComplexModule(content)) {
-      skipped.push({ route: routePath, file, reason: 'complex' });
-      continue;
+      skipped.push({ route: routePath, file, reason: 'complex' })
+      continue
     }
-    
-    const dataCode = extractDataObject(content);
-    const crypto = detectCrypto(content);
-    const apiPath = detectApiPath(content);
-    
+
+    const dataCode = extractDataObject(content)
+    const crypto = detectCrypto(content)
+    const apiPath = detectApiPath(content)
+
     if (!dataCode || !apiPath) {
-      errors.push({ route: routePath, file, reason: `data: ${!!dataCode}, apiPath: ${!!apiPath}` });
-      continue;
+      errors.push({ route: routePath, file, reason: `data: ${!!dataCode}, apiPath: ${!!apiPath}` })
+      continue
     }
-    
+
     routes.push({
       route: routePath,
       crypto,
       apiPath,
       dataCode: dataCode,
-    });
+    })
   }
-  
+
   // 生成输出
   let output = `/**
  * 自动生成的路由定义
@@ -230,21 +235,21 @@ const resourceTypeMap = {
 };
 
 export function registerGeneratedRoutes(app) {
-`;
+`
 
   for (const r of routes) {
     // 去掉 "const data = " 前缀，保留对象字面量
-    const dataObj = r.dataCode;
-    
+    const dataObj = r.dataCode
+
     output += `
   // ${r.route} (${r.crypto})
   app.all('${r.route}', handleModule((query, request) => {
     const data = ${dataObj}
     return request('${r.apiPath}', data, { crypto: '${r.crypto}' });
   }));
-`;
+`
   }
-  
+
   output += `
 }
 
@@ -319,24 +324,24 @@ export const routeStats = {
   total: ${routes.length},
   skipped: ${skipped.length},
   errors: ${errors.length},
-  skippedRoutes: ${JSON.stringify(skipped.map(s => s.route))},
-  errorRoutes: ${JSON.stringify(errors.map(e => ({ route: e.route, reason: e.reason })))},
+  skippedRoutes: ${JSON.stringify(skipped.map((s) => s.route))},
+  errorRoutes: ${JSON.stringify(errors.map((e) => ({ route: e.route, reason: e.reason })))},
 };
-`;
+`
 
-  fs.writeFileSync(OUTPUT_FILE, output, 'utf-8');
-  
-  console.log(`✅ 生成完成: ${routes.length} 个简单接口`);
-  console.log(`⚠️  跳过 ${skipped.length} 个复杂接口:`);
-  skipped.slice(0, 15).forEach(s => console.log(`   - ${s.route} (${s.reason})`));
-  if (skipped.length > 15) console.log(`   ... 还有 ${skipped.length - 15} 个`);
-  
+  fs.writeFileSync(OUTPUT_FILE, output, 'utf-8')
+
+  console.log(`✅ 生成完成: ${routes.length} 个简单接口`)
+  console.log(`⚠️  跳过 ${skipped.length} 个复杂接口:`)
+  skipped.slice(0, 15).forEach((s) => console.log(`   - ${s.route} (${s.reason})`))
+  if (skipped.length > 15) console.log(`   ... 还有 ${skipped.length - 15} 个`)
+
   if (errors.length > 0) {
-    console.log(`\n❌ ${errors.length} 个解析错误:`);
-    errors.slice(0, 10).forEach(e => console.log(`   - ${e.route}: ${e.reason}`));
+    console.log(`\n❌ ${errors.length} 个解析错误:`)
+    errors.slice(0, 10).forEach((e) => console.log(`   - ${e.route}: ${e.reason}`))
   }
-  
-  console.log(`\n输出: ${OUTPUT_FILE}`);
+
+  console.log(`\n输出: ${OUTPUT_FILE}`)
 }
 
-main();
+main()

@@ -7,49 +7,47 @@
  *
  * 用法: node scripts/probe-unlock-default.cjs [pages-base]
  */
-const cfg = require('./config.cjs');
+const cfg = require('./config.cjs')
 
-const BASE = process.argv[2] || cfg.pagesUrl;
+const BASE = process.argv[2] || cfg.pagesUrl
 
-(async () => {
-  console.log(`目标: ${BASE}\n`);
+;(async () => {
+  console.log(`目标: ${BASE}\n`)
 
-  const html = await (await fetch(BASE, { signal: AbortSignal.timeout(30000) })).text();
-  const refs = [
-    ...html.matchAll(/(?:src|href)="\.\/(assets\/[^"]+\.js)"/g),
-  ].map((m) => m[1]);
-  const all = [...new Set(refs)];
-  console.log(`入口引用 JS: ${all.length} 个`);
+  const html = await (await fetch(BASE, { signal: AbortSignal.timeout(30000) })).text()
+  const refs = [...html.matchAll(/(?:src|href)="\.\/(assets\/[^"]+\.js)"/g)].map((m) => m[1])
+  const all = [...new Set(refs)]
+  console.log(`入口引用 JS: ${all.length} 个`)
 
-  let found = null;
+  let found = null
   for (const rel of all) {
-    const url = new URL(rel, BASE + '/').toString();
-    let text;
+    const url = new URL(rel, BASE + '/').toString()
+    let text
     try {
-      text = await (await fetch(url, { signal: AbortSignal.timeout(60000) })).text();
+      text = await (await fetch(url, { signal: AbortSignal.timeout(60000) })).text()
     } catch (e) {
-      continue;
+      continue
     }
-    const m = text.match(/useSongUnlock:\s*(!0|!1|true|false)/);
+    const m = text.match(/useSongUnlock:\s*(!0|!1|true|false)/)
     if (m) {
-      found = { url, value: m[1], snippet: m[0] };
-      break;
+      found = { url, value: m[1], snippet: m[0] }
+      break
     }
   }
 
   if (!found) {
-    console.log('❌ 未在产物中找到 useSongUnlock 默认值');
-    process.exit(1);
+    console.log('❌ 未在产物中找到 useSongUnlock 默认值')
+    process.exit(1)
   }
 
-  console.log(`\n来源: ${found.url.split('/').pop()}`);
-  console.log(`片段: ${found.snippet}\n`);
+  console.log(`\n来源: ${found.url.split('/').pop()}`)
+  console.log(`片段: ${found.snippet}\n`)
 
-  const disabled = found.value === '!1' || found.value === 'false';
+  const disabled = found.value === '!1' || found.value === 'false'
   console.log(
     disabled
       ? '✅ 音乐解锁默认已关闭，前端不会发起解锁请求'
       : '❌ 音乐解锁仍为开启状态，会拖慢不可用歌曲的播放',
-  );
-  process.exit(disabled ? 0 : 1);
-})();
+  )
+  process.exit(disabled ? 0 : 1)
+})()

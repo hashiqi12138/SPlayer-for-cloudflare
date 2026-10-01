@@ -9,46 +9,50 @@
  *   $env:NCM_COOKIE = "MUSIC_U=xxx;os=pc;"
  *   node scripts/probe-cookie-paths.cjs
  */
-const COOKIE = process.env.NCM_COOKIE || '';
-const ECHO = 'https://httpbin.org/anything';
+const COOKIE = process.env.NCM_COOKIE || ''
+const ECHO = 'https://httpbin.org/anything'
 
-const cfg = require('./config.cjs');
+const cfg = require('./config.cjs')
 
 const BASES = [
   ['已部署 Worker', cfg.apiWorkerUrl],
   ['本地 dev', 'http://127.0.0.1:8788'],
-];
+]
 
 const CASES = [
   ['song/url/v1', '/song/url/v1?id=3342319503&level=exhigh'],
   ['song/detail', '/song/detail?ids=304867'],
   ['login/status', '/login/status'],
-];
+]
 
 async function probe(base, path, viaQuery, viaHeader) {
-  const parts = [`${path}&domain=${encodeURIComponent(ECHO)}`];
-  if (viaQuery) parts.push(`cookie=${encodeURIComponent(COOKIE)}`);
-  const headers = viaHeader ? { Cookie: COOKIE } : {};
-  const res = await fetch(base + parts.join('&'), { headers });
-  const text = await res.text();
-  let json = null;
-  try { json = JSON.parse(text); } catch (e) { /* ignore */ }
-  const outbound = (json && json.headers && json.headers.Cookie) || '';
-  const m = outbound.match(/MUSIC_U=([^;]*)/);
+  const parts = [`${path}&domain=${encodeURIComponent(ECHO)}`]
+  if (viaQuery) parts.push(`cookie=${encodeURIComponent(COOKIE)}`)
+  const headers = viaHeader ? { Cookie: COOKIE } : {}
+  const res = await fetch(base + parts.join('&'), { headers })
+  const text = await res.text()
+  let json = null
+  try {
+    json = JSON.parse(text)
+  } catch (e) {
+    /* ignore */
+  }
+  const outbound = (json && json.headers && json.headers.Cookie) || ''
+  const m = outbound.match(/MUSIC_U=([^;]*)/)
   return {
     has: !!m,
     clean: m ? !/%3B|%3D|;/.test(m[1]) : false,
     len: outbound.length,
-  };
+  }
 }
 
-(async () => {
+;(async () => {
   if (!COOKIE) {
-    console.error('缺少 NCM_COOKIE');
-    process.exit(2);
+    console.error('缺少 NCM_COOKIE')
+    process.exit(2)
   }
   for (const [baseName, base] of BASES) {
-    console.log(`\n===== ${baseName} =====`);
+    console.log(`\n===== ${baseName} =====`)
     for (const [name, path] of CASES) {
       for (const [how, viaQuery, viaHeader] of [
         ['查询参数', true, false],
@@ -56,13 +60,15 @@ async function probe(base, path, viaQuery, viaHeader) {
         ['两者都给', true, true],
       ]) {
         try {
-          const r = await probe(base, path, viaQuery, viaHeader);
-          const flag = r.has && r.clean ? '✅' : '❌';
-          console.log(`  ${flag} ${name.padEnd(13)} ${how} -> MUSIC_U=${r.has} 未被污染=${r.clean} cookieLen=${r.len}`);
+          const r = await probe(base, path, viaQuery, viaHeader)
+          const flag = r.has && r.clean ? '✅' : '❌'
+          console.log(
+            `  ${flag} ${name.padEnd(13)} ${how} -> MUSIC_U=${r.has} 未被污染=${r.clean} cookieLen=${r.len}`,
+          )
         } catch (e) {
-          console.log(`  💥 ${name.padEnd(13)} ${how} -> ${e.message}`);
+          console.log(`  💥 ${name.padEnd(13)} ${how} -> ${e.message}`)
         }
       }
     }
   }
-})();
+})()

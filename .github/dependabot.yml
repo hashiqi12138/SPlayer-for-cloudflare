@@ -1,0 +1,56 @@
+version: 2
+
+# 依赖更新策略
+#
+# 这个项目的核心工程约束是「固定版本 + 可复现」：
+#   - npm 依赖由 package-lock.json 锁定
+#   - 两个上游仓库以 submodule 记录固定 commit，升级必须走 npm run deps:update
+#     （会重新打补丁、重建产物、跑单测，任一步失败即中止）
+# 所以这里的目标不是「让依赖自动变新」，而是**让漂移可见**：
+# 定期开 PR 告诉你上游动了，由人决定要不要按流程升。
+
+updates:
+  # 根目录工具链：wrangler、prettier 等。
+  # 部署用的是 wrangler，版本变化可能影响部署行为，所以合并前值得看一眼 release notes。
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps)'
+    groups:
+      # 工具链依赖合成一个 PR，避免每周被十几条通知淹没
+      tooling:
+        patterns: ['*']
+
+  # API Worker 自己的依赖
+  - package-ecosystem: npm
+    directory: /workers/api
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps)'
+
+  # 上游 submodule
+  #
+  # ⚠️ 不要直接合并这类 PR。submodule 的升级必须经过发布闸门：
+  #     npm run deps:update   # 拉上游 -> 重打补丁 -> 重建 -> 跑单测
+  # 直接合并只会把 gitlink 指到一个没验证过（甚至补丁已失配）的提交。
+  # 这条 PR 的作用是提醒「上游有新版本了」。
+  - package-ecosystem: gitsubmodule
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: 'chore(submodule)'
+
+  # workflow 里用到的 action 自身也需要跟随安全更新
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: 'chore(ci)'

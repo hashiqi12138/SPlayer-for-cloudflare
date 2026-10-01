@@ -1,0 +1,36 @@
+# 编辑器统一配置
+#
+# 与 .gitattributes 的分工：
+#   .gitattributes 管「提交进仓库的是什么」（LF、BOM 有专门的 CI 校验）
+#   .editorconfig  管「编辑器敲出来的新文件长什么样」
+# 两者都必要：前者保证入库内容一致，后者保证新文件不会第一天就写歪。
+#
+# 缩进与引号等更细的风格由 .prettierrc 统一裁决，这里只定最基础的部分。
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# 补丁文件是 git diff 的输出，去掉行尾空白或补最终换行都会让 git apply 失败
+[*.patch]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+# Markdown 里行尾两个空格是有意义的换行，不能自动清理
+[*.md]
+trim_trailing_whitespace = false
+
+# PowerShell 脚本必须保留 UTF-8 BOM（Windows PowerShell 5.1 会用系统 ANSI 解码无 BOM 的
+# UTF-8，中文会变乱码并破坏语法）。charset 只能写 utf-8，BOM 无法在此表达，
+# 由 scripts/verify.mjs 与 CI 强制校验。
+[*.ps1]
+indent_size = 4
+
+[*.{yml,yaml}]
+indent_size = 2

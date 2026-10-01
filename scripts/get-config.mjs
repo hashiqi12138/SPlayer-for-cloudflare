@@ -8,32 +8,32 @@
  * 用法: node scripts/get-config.mjs <key>
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CONFIG_FILE = path.join(__dirname, '..', 'deploy.config.json');
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const CONFIG_FILE = path.join(__dirname, '..', 'deploy.config.json')
 
-const key = process.argv[2];
+const key = process.argv[2]
 if (!key) {
-  console.error('用法: node scripts/get-config.mjs <key>');
-  process.exit(2);
+  console.error('用法: node scripts/get-config.mjs <key>')
+  process.exit(2)
 }
 
-let cfg;
+let cfg
 try {
-  cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+  cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))
 } catch (e) {
-  console.error(`无法读取 deploy.config.json: ${e.message}`);
-  process.exit(2);
+  console.error(`无法读取 deploy.config.json: ${e.message}`)
+  process.exit(2)
 }
 
-const value = cfg[key];
+const value = cfg[key]
 if (value === undefined || value === null) {
-  console.error(`deploy.config.json 中没有 ${key}`);
-  process.exit(2);
+  console.error(`deploy.config.json 中没有 ${key}`)
+  process.exit(2)
 }
 
 // 只输出值本身，便于命令替换；空字符串表示该键存在但为空（如 pagesBranch 表示发布到 production）
-process.stdout.write(String(value));
+process.stdout.write(String(value))

@@ -1,21 +1,21 @@
 /**
  * 模块转译生成器
- * 
+ *
  * 把 api-enhanced 的 CommonJS 模块整体转译为 ESM 可用的函数映射。
  * 与旧版（只提取 data 字面量）相比，本版保留：
  *   - 预处理语句（query.ids.split、const type、const threadId 等）
  *   - 动态 API 路径（模板字符串）
  *   - 多步请求
- * 
+ *
  * 用法: node scripts/build-modules.cjs
  * 输出: src/generated-routes.js
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('fs')
+const path = require('path')
 
-const MODULE_DIR = path.join(__dirname, '..', 'ncm-source', 'module');
-const OUTPUT_FILE = path.join(__dirname, '..', 'src', 'generated-routes.js');
+const MODULE_DIR = path.join(__dirname, '..', 'ncm-source', 'module')
+const OUTPUT_FILE = path.join(__dirname, '..', 'src', 'generated-routes.js')
 
 // 允许的额外 require：映射为文件顶部的 ESM import。
 // 这些模块在原仓库依赖 fs / ANSI 日志 / JSON 文件，Workers 里无法直接加载，
@@ -45,10 +45,10 @@ const SHIM_REQUIRES = {
   // util/crypto 的 Workers 版实现（含 eapi 解密、xeapiSign 等可移植部分）
   '../util/crypto.js': { id: '__crypto__', import: "import __crypto__ from './shims/crypto.js';" },
   '../util/crypto': { id: '__crypto__', import: "import __crypto__ from './shims/crypto.js';" },
-};
+}
 
 function moduleNameToRoute(filename) {
-  return '/' + filename.replace(/_/g, '/').replace(/\.js$/, '');
+  return '/' + filename.replace(/_/g, '/').replace(/\.js$/, '')
 }
 
 function transpile(content) {
@@ -58,107 +58,111 @@ function transpile(content) {
   let code = content.replace(
     /^\s*const\s+\w+\s*=\s*require\(\s*['"][^'"]*option\.js['"]\s*\)\s*;?\s*$/gm,
     '',
-  );
+  )
 
   // 2. 把可替代的 require 整体替换为 shim 标识符。
   //    直接替换调用表达式（而非整行），这样 `const { x } = require(p)` 与
   //    `const logger = require(p)` 两种写法都能原样保留。
-  const usedShims = new Set();
+  const usedShims = new Set()
   for (const [reqPath, shim] of Object.entries(SHIM_REQUIRES)) {
-    const escaped = reqPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp(`require\\(\\s*['"]${escaped}['"]\\s*\\)`, 'g');
+    const escaped = reqPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const re = new RegExp(`require\\(\\s*['"]${escaped}['"]\\s*\\)`, 'g')
     if (re.test(code)) {
-      code = code.replace(re, shim.id);
-      usedShims.add(shim.id);
+      code = code.replace(re, shim.id)
+      usedShims.add(shim.id)
     }
   }
 
   // 2.5 同目录模块之间的相互调用：require('./ad_get.js') → __moduleRef('/ad/get')
   //     这些「子模块」本身也是注册在册的路由，运行时按路由名延迟取用即可，
   //     不需要把源码内联进来。
-  const usedModuleRefs = new Set();
-  code = code.replace(
-    /require\(\s*['"]\.\/([\w.-]+)\.js['"]\s*\)/g,
-    (match, name) => {
-      if (!fs.existsSync(path.join(MODULE_DIR, `${name}.js`))) return match;
-      const route = '/' + name.replace(/_/g, '/');
-      usedModuleRefs.add(route);
-      return `__moduleRef(${JSON.stringify(route)})`;
-    },
-  );
+  const usedModuleRefs = new Set()
+  code = code.replace(/require\(\s*['"]\.\/([\w.-]+)\.js['"]\s*\)/g, (match, name) => {
+    if (!fs.existsSync(path.join(MODULE_DIR, `${name}.js`))) return match
+    const route = '/' + name.replace(/_/g, '/')
+    usedModuleRefs.add(route)
+    return `__moduleRef(${JSON.stringify(route)})`
+  })
 
   // 3. 若仍有未支持的 require，放弃该模块
-  const remaining = [...code.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map(m => m[1]);
+  const remaining = [...code.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1])
   if (remaining.length > 0) {
-    return { ok: false, reason: 'unsupported require: ' + [...new Set(remaining)].join(', ') };
+    return { ok: false, reason: 'unsupported require: ' + [...new Set(remaining)].join(', ') }
   }
 
   // 4. 取出 module.exports 之后的内容作为函数表达式
-  const m = code.match(/module\.exports\s*=/);
-  if (!m) return { ok: false, reason: 'no module.exports' };
+  const m = code.match(/module\.exports\s*=/)
+  if (!m) return { ok: false, reason: 'no module.exports' }
 
   // 4.1 补回 shim 绑定。
   //     `const { toBoolean } = require('../util')` 这类声明写在 module.exports 之前，
   //     只截取 exports 之后的代码会把绑定丢掉，运行时报 "xxx is not defined"。
   //     这里只挑出「从 shim 标识符 / __moduleRef 取值」的声明行，塞进函数体开头。
-  const head = code.slice(0, m.index);
+  const head = code.slice(0, m.index)
   const bindings = head
     .split('\n')
     .map((l) => l.trim())
-    .filter((l) =>
-      /^(const|let|var)\s+.+=\s*(__\w+__|__moduleRef\(['"][^'"]*['"]\))\s*;?$/.test(l),
-    );
+    .filter((l) => /^(const|let|var)\s+.+=\s*(__\w+__|__moduleRef\(['"][^'"]*['"]\))\s*;?$/.test(l))
 
-  let fn = code.slice(m.index + m[0].length).trim();
+  let fn = code.slice(m.index + m[0].length).trim()
   // 去掉结尾分号
-  fn = fn.replace(/;\s*$/, '');
+  fn = fn.replace(/;\s*$/, '')
 
   // 先校验 exports 本身是函数表达式，再拼接 shim 绑定（否则前缀会干扰判断）
   if (!/^(async\s*)?\(/.test(fn) && !/^(async\s+)?function/.test(fn)) {
-    return { ok: false, reason: 'exports is not a function expression' };
+    return { ok: false, reason: 'exports is not a function expression' }
   }
 
   // 绑定必须以「函数体语句」的形式出现，而 exports 是对象属性值（不能直接前缀语句），
-// 因此用一个立即执行函数包一层，把绑定放进闭包里再返回原函数。
+  // 因此用一个立即执行函数包一层，把绑定放进闭包里再返回原函数。
   if (bindings.length > 0) {
-    fn = `(() => {\n${bindings.join('\n')}\nreturn ${fn};\n})()`;
+    fn = `(() => {\n${bindings.join('\n')}\nreturn ${fn};\n})()`
   }
 
-  return { ok: true, fn, usedShims, usedModuleRefs };
+  return { ok: true, fn, usedShims, usedModuleRefs }
 }
 
 function main() {
-  const files = fs.readdirSync(MODULE_DIR).filter(f => f.endsWith('.js')).sort();
-  const entries = [];
-  const skipped = [];
+  const files = fs
+    .readdirSync(MODULE_DIR)
+    .filter((f) => f.endsWith('.js'))
+    .sort()
+  const entries = []
+  const skipped = []
 
   for (const file of files) {
-    const content = fs.readFileSync(path.join(MODULE_DIR, file), 'utf-8');
-    const route = moduleNameToRoute(file);
-    const r = transpile(content);
+    const content = fs.readFileSync(path.join(MODULE_DIR, file), 'utf-8')
+    const route = moduleNameToRoute(file)
+    const r = transpile(content)
     if (!r.ok) {
-      skipped.push({ route, file, reason: r.reason });
-      continue;
+      skipped.push({ route, file, reason: r.reason })
+      continue
     }
-    entries.push({ route, file, fn: r.fn, usedShims: r.usedShims, usedModuleRefs: r.usedModuleRefs });
+    entries.push({
+      route,
+      file,
+      fn: r.fn,
+      usedShims: r.usedShims,
+      usedModuleRefs: r.usedModuleRefs,
+    })
   }
 
   // 收集实际用到的 shim import（按 SHIM_REQUIRES 声明顺序，保证输出稳定）。
   // 必须按 id 去重：多个 require 路径会映射到同一个标识符，
   // 重复 import 同名绑定会导致 ESM 语法错误。
-  const usedShimIds = new Set();
-  for (const e of entries) for (const id of e.usedShims) usedShimIds.add(id);
+  const usedShimIds = new Set()
+  for (const e of entries) for (const id of e.usedShims) usedShimIds.add(id)
   // 同目录模块互调用到的路由（用于生成 __moduleRef 辅助函数）
-  const usedModuleRefIds = new Set();
+  const usedModuleRefIds = new Set()
   for (const e of entries) {
-    if (e.usedModuleRefs) for (const r of e.usedModuleRefs) usedModuleRefIds.add(r);
+    if (e.usedModuleRefs) for (const r of e.usedModuleRefs) usedModuleRefIds.add(r)
   }
 
-  const seenIds = new Set();
+  const seenIds = new Set()
   const shimImports = Object.values(SHIM_REQUIRES)
     .filter((s) => usedShimIds.has(s.id) && !seenIds.has(s.id) && seenIds.add(s.id))
     .map((s) => s.import)
-    .join('\n');
+    .join('\n')
 
   // 同目录模块互调所需的辅助函数（仅在确有互调时输出）
   const moduleRefHelper =
@@ -169,7 +173,7 @@ function main() {
 const __moduleRef = (route) => (query, request, deps) =>
   moduleFns[route](query, request, deps);
 `
-      : '';
+      : ''
 
   let out = `/**
  * 自动生成 —— 请勿手动编辑
@@ -199,10 +203,10 @@ const resourceTypeMap = {
 };
 ${moduleRefHelper}
 export const moduleFns = {
-`;
+`
 
   for (const e of entries) {
-    out += `\n  // ${e.route}  <-- ${e.file}\n  '${e.route}': ${e.fn},\n`;
+    out += `\n  // ${e.route}  <-- ${e.file}\n  '${e.route}': ${e.fn},\n`
   }
 
   out += `};
@@ -270,29 +274,29 @@ function handleModule(moduleFn) {
 export const routeStats = {
   total: ${entries.length},
   skipped: ${skipped.length},
-  skippedModules: ${JSON.stringify(skipped.map(s => ({ route: s.route, reason: s.reason })))},
+  skippedModules: ${JSON.stringify(skipped.map((s) => ({ route: s.route, reason: s.reason })))},
 };
-`;
+`
 
   // handleModule 里用到 createRequest，需要 import
   out = out.replace(
     "import createOption from './option.js';",
-    "import createOption from './option.js';\nimport { createRequest } from './ncm-request-handler.js';"
-  );
+    "import createOption from './option.js';\nimport { createRequest } from './ncm-request-handler.js';",
+  )
 
-  fs.writeFileSync(OUTPUT_FILE, out, 'utf-8');
+  fs.writeFileSync(OUTPUT_FILE, out, 'utf-8')
 
-  console.log(`已转译: ${entries.length} 个模块`);
-  console.log(`已跳过: ${skipped.length} 个`);
-  const byReason = {};
+  console.log(`已转译: ${entries.length} 个模块`)
+  console.log(`已跳过: ${skipped.length} 个`)
+  const byReason = {}
   for (const s of skipped) {
-    const key = s.reason.split(':')[0];
-    byReason[key] = (byReason[key] || 0) + 1;
+    const key = s.reason.split(':')[0]
+    byReason[key] = (byReason[key] || 0) + 1
   }
-  console.log('跳过原因统计:', JSON.stringify(byReason));
-  console.log('\n跳过明细:');
-  skipped.forEach(s => console.log(`  - ${s.route}  (${s.reason})`));
-  console.log(`\n输出: ${OUTPUT_FILE}`);
+  console.log('跳过原因统计:', JSON.stringify(byReason))
+  console.log('\n跳过明细:')
+  skipped.forEach((s) => console.log(`  - ${s.route}  (${s.reason})`))
+  console.log(`\n输出: ${OUTPUT_FILE}`)
 }
 
-main();
+main()

@@ -130,27 +130,37 @@ require_dir() {
   fi
 }
 
+# 根目录依赖是否已安装
+#
+# 部署必须使用 package-lock.json 锁定的 wrangler：如果允许 npx 自行下载，
+# 同一个提交在不同时间、不同机器上可能用不同版本的 wrangler 部署，
+# 「固定版本可复现」就只覆盖了源码、没覆盖工具链。
+ensure_local_deps() {
+  if [ ! -d "$ROOT_DIR/node_modules" ]; then
+    die "根目录依赖未安装，无法保证 wrangler 版本与锁文件一致" "请先执行: npm ci"
+  fi
+}
+
 check_wrangler() {
   need_cmd npx "wrangler 通过 npx 调用，请确认 Node.js 与 npm 已安装"
-  # 刻意不用 `npx --no-install`：它要求 wrangler 已经装在本仓库的 node_modules 里，
-  # 新克隆的仓库会直接失败。用 `npx wrangler` 则由 npx 自行「本地优先、缺则取用缓存」
-  # —— 这也是 PowerShell 版本一直在用的写法，两边行为保持一致。
-  if ! npx wrangler --version >/dev/null 2>&1; then
-    die "wrangler CLI 不可用" "请检查网络，或先执行: npm install"
+  # `--no-install` 是刻意的：只用 node_modules 里锁文件装出来的版本，
+  # 缺了就报错让使用者去 npm ci，而不是悄悄下载一个「最新的」。
+  if ! npx --no-install wrangler --version >/dev/null 2>&1; then
+    die "wrangler CLI 不可用" "请执行: npm ci（需要锁定版本的 wrangler）"
   fi
-  log_ok "wrangler 已就绪"
+  log_ok "wrangler 已就绪（本地锁定版本）"
 }
 
 # 登录状态。allow_login=1 时未登录会触发 wrangler login（交互式）
 check_login() {
   local allow_login="${1:-0}"
-  if npx wrangler whoami >/dev/null 2>&1; then
+  if npx --no-install wrangler whoami >/dev/null 2>&1; then
     log_ok "Cloudflare 已登录"
     return 0
   fi
   if [ "$allow_login" = "1" ] && is_interactive; then
     log_warn "未登录，启动 wrangler login..."
-    npx wrangler login || die "登录失败"
+    npx --no-install wrangler login || die "登录失败"
     return 0
   fi
   die "Cloudflare 未登录" "请先执行: npm run login"

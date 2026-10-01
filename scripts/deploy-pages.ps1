@@ -27,6 +27,15 @@ Write-Host ""
 # 存放在 patches/，统一由 scripts/deps.mjs 管理。部署前必须确认：
 # 子模块已就位、补丁已应用、且单测在当前版本上通过。
 # ============================================================
+# 部署必须使用 package-lock.json 锁定的 wrangler。若允许 npx 自行下载，
+# 同一个提交在不同时间、不同机器上可能用不同版本的 wrangler 部署，
+# 「固定版本可复现」就只覆盖了源码、没覆盖工具链。
+if (-not (Test-Path (Join-Path $ProjectRoot "node_modules"))) {
+    Write-Host "❌ 根目录依赖未安装，无法保证 wrangler 版本与锁文件一致" -ForegroundColor Red
+    Write-Host "   请先执行: npm ci" -ForegroundColor Yellow
+    exit 1
+}
+
 if (-not (Test-Path $FrontendDir)) {
     Write-Host "❌ 缺少上游依赖 splayer-frontend（git submodule）" -ForegroundColor Red
     Write-Host "   请先执行: npm run deps:setup" -ForegroundColor Yellow
@@ -43,7 +52,7 @@ if ($LASTEXITCODE -ne 0) {
 # 检查 wrangler
 Write-Host "📦 检查 wrangler CLI..." -ForegroundColor Yellow
 try {
-    $null = & npx wrangler --version 2>&1
+    $null = & npx --no-install wrangler --version 2>&1
     Write-Host "   ✅ wrangler 已就绪" -ForegroundColor Green
 } catch {
     Write-Host "   ❌ wrangler 未找到" -ForegroundColor Red
@@ -53,7 +62,7 @@ Write-Host ""
 
 # 检查登录状态
 Write-Host "🔐 检查 Cloudflare 登录状态..." -ForegroundColor Yellow
-$loginResult = & npx wrangler whoami 2>&1
+$loginResult = & npx --no-install wrangler whoami 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "   ⚠️  未登录，请先运行: npm run login" -ForegroundColor Yellow
     exit 1
@@ -198,9 +207,9 @@ Write-Host ""
 Push-Location $FrontendDir
 try {
     if ([string]::IsNullOrWhiteSpace($branch)) {
-        & npx wrangler pages deploy out/renderer --project-name=$projectName
+        & npx --no-install wrangler pages deploy out/renderer --project-name=$projectName
     } else {
-        & npx wrangler pages deploy out/renderer --project-name=$projectName --branch=$branch
+        & npx --no-install wrangler pages deploy out/renderer --project-name=$projectName --branch=$branch
     }
     if ($LASTEXITCODE -ne 0) {
         throw "部署失败"

@@ -7,15 +7,15 @@
  * 避免前端把「200 + url:null」当成成功而卡住。
  */
 
-import { getJson, toHttps } from './http.js';
+import { getJson, toHttps } from './http.js'
 
-const GD_API = 'https://music-api.gdstudio.xyz/api.php';
+const GD_API = 'https://music-api.gdstudio.xyz/api.php'
 
 /** 聚合接口的请求头：补上 Referer / Accept，尽量贴近正常调用方 */
 const GD_HEADERS = {
   Referer: 'https://music-api.gdstudio.xyz/',
   Accept: 'application/json, text/plain, */*',
-};
+}
 
 /**
  * @param {number|string} id 网易云歌曲 ID
@@ -23,29 +23,28 @@ const GD_HEADERS = {
  */
 async function getNeteaseSongUrl(id) {
   try {
-    if (!id) return { code: 404, url: null, reason: 'empty-id' };
+    if (!id) return { code: 404, url: null, reason: 'empty-id' }
 
-    const data = await getJson(
-      `${GD_API}?types=url&id=${encodeURIComponent(id)}`,
-      { headers: GD_HEADERS },
-    );
+    const data = await getJson(`${GD_API}?types=url&id=${encodeURIComponent(id)}`, {
+      headers: GD_HEADERS,
+    })
 
-    const url = data?.url;
-    if (!url) return { code: 404, url: null, reason: 'no-url' };
+    const url = data?.url
+    if (!url) return { code: 404, url: null, reason: 'no-url' }
 
-    return { code: 200, url: toHttps(url) };
+    return { code: 200, url: toHttps(url) }
   } catch (err) {
-    const status = err?.status;
+    const status = err?.status
     // 聚合接口对部分出口 IP 直接返回 401/403，属环境限制而非实现缺陷
     const reason =
       status === 401 || status === 402 || status === 403
         ? 'source-blocked'
         : err?.name === 'TimeoutError' || /timeout/i.test(err?.message || '')
           ? 'timeout'
-          : 'error';
-    console.error('[unblock/netease]', reason, err?.message || err);
-    return { code: 404, url: null, reason };
+          : 'error'
+    console.error('[unblock/netease]', reason, err?.message || err)
+    return { code: 404, url: null, reason }
   }
 }
 
-export default getNeteaseSongUrl;
+export default getNeteaseSongUrl

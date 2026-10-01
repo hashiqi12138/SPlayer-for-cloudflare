@@ -1,0 +1,28 @@
+#!/usr/bin/env sh
+#
+# 提交前门禁（可选启用：npm run hooks:install）
+#
+# 只跑「不需要网络、不依赖外部环境」的检查，把最容易犯的低级错误挡在本地：
+#   - PowerShell 脚本丢 BOM / shell 脚本变 CRLF（这两类问题会直接让脚本跑不起来）
+#   - 忘了跑 prettier
+#   - 把 .dev.vars、cookie 之类的凭据提交进去
+#   - 生成了「已被 gitignore 却仍被跟踪」的文件
+#
+# 刻意用 --no-bash 跳过部署脚本自检：那一项要几秒钟，而它更适合放在 CI 与
+# 显式执行 `npm run verify` 时跑。想跑全套就直接 `npm run verify`。
+
+set -e
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: 未找到 node，跳过检查"
+  exit 0
+fi
+
+node scripts/verify.mjs --no-bash || {
+  echo ""
+  echo "pre-commit 未通过：请按上面的提示修复后再提交。"
+  echo "仅本次跳过可用: git commit --no-verify"
+  exit 1
+}

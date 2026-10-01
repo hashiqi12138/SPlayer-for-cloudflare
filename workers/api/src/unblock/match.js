@@ -11,7 +11,7 @@ export const normalizeName = (name) =>
   String(name || '')
     .toLowerCase()
     .replace(/[（(][^）)]*[）)]/g, '')
-    .trim();
+    .trim()
 
 /** 归一化艺术家：小写 + 统一分隔符为空格 */
 export const normalizeArtist = (artist) =>
@@ -19,7 +19,7 @@ export const normalizeArtist = (artist) =>
     .toLowerCase()
     .replace(/[&/、，,;；]/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim()
 
 /**
  * 校验搜索结果是否与原曲匹配（歌名 + 艺术家）
@@ -30,35 +30,35 @@ export const normalizeArtist = (artist) =>
  * @returns {boolean}
  */
 export const isSongMatch = (resultName, resultArtist, match) => {
-  const normalizedResult = normalizeName(resultName);
-  const normalizedOriginal = normalizeName(match.songName);
+  const normalizedResult = normalizeName(resultName)
+  const normalizedOriginal = normalizeName(match.songName)
 
   // 结果歌名为空视为无效；原曲未提供歌名时跳过歌名校验
-  if (!normalizedResult) return false;
+  if (!normalizedResult) return false
   if (normalizedOriginal) {
     if (
       !normalizedResult.includes(normalizedOriginal) &&
       !normalizedOriginal.includes(normalizedResult)
     ) {
-      return false;
+      return false
     }
   }
 
   // 艺术家：任一侧为空则跳过
   if (resultArtist && match.artist) {
-    const normalizedResultArtist = normalizeArtist(resultArtist);
-    const normalizedOriginalArtist = normalizeArtist(match.artist);
+    const normalizedResultArtist = normalizeArtist(resultArtist)
+    const normalizedOriginalArtist = normalizeArtist(match.artist)
     if (normalizedResultArtist && normalizedOriginalArtist) {
       if (
         !normalizedResultArtist.includes(normalizedOriginalArtist) &&
         !normalizedOriginalArtist.includes(normalizedResultArtist)
       ) {
-        return false;
+        return false
       }
     }
   }
 
-  return true;
-};
+  return true
+}
 
-export default { normalizeName, normalizeArtist, isSongMatch };
+export default { normalizeName, normalizeArtist, isSongMatch }

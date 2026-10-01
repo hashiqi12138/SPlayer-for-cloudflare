@@ -36,6 +36,7 @@ banner "部署 SPlayer 前端到 Cloudflare Pages"
 # 「依赖校验失败」这种误导性的结论。
 # ------------------------------------------------------------
 check_node
+ensure_local_deps
 require_dir "$FRONTEND_DIR" 'splayer-frontend'
 verify_deps
 check_wrangler
@@ -137,7 +138,7 @@ log_dim "项目: $PROJECT_NAME"
 log_dim "分支: $TARGET_DESC"
 echo
 
-npx wrangler pages deploy out/renderer \
+npx --no-install wrangler pages deploy out/renderer \
   --project-name="$PROJECT_NAME" "${BRANCH_ARGS[@]+"${BRANCH_ARGS[@]}"}"
 
 echo
