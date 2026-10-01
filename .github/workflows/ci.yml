@@ -71,6 +71,33 @@ jobs:
           [ $bad -eq 0 ] && echo "✅ 全部 .ps1 均带 BOM"
           exit $bad
 
+      - name: 校验 bash 脚本语法与换行符
+        # 两件事：
+        # 1) 语法检查，避免把带错字的脚本合进来；
+        # 2) 不允许 CRLF。Windows 上 core.autocrlf=true 会把文本文件检出成 CRLF，
+        #    行尾的 \r 会被 bash 当成命令的一部分，报 `$'\r': command not found`。
+        #    .gitattributes 已把 *.sh 固定为 LF，这里守住它不被改回去。
+        run: |
+          fail=0
+          for f in $(git ls-files '*.sh'); do
+            if ! bash -n "$f"; then
+              echo "::error file=$f::bash 语法检查未通过"
+              fail=1
+            fi
+            if grep -q $'\r' "$f"; then
+              echo "::error file=$f::包含 CRLF 换行，bash 下会报 \$'\\r': command not found"
+              fail=1
+            fi
+          done
+          for f in $(git ls-files '*.patch'); do
+            if grep -q $'\r' "$f"; then
+              echo "::error file=$f::补丁包含 CRLF 换行，git apply 会匹配失败"
+              fail=1
+            fi
+          done
+          [ $fail -eq 0 ] && echo "✅ shell 脚本与补丁换行符检查通过"
+          exit $fail
+
       - name: 依赖状态
         run: npm run deps:status
 

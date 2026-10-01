@@ -1,0 +1,21 @@
+# 换行符策略
+#
+# 背景：本仓库主要在 Windows 上开发，git 默认 core.autocrlf=true 会把文本文件
+# 检出成 CRLF。对 .sh 来说这是致命的 —— bash 会把行尾的 \r 当成命令的一部分，
+# 报出 `$'\r': command not found` 这类难以定位的错误。
+# 因此这里显式规定：shell 脚本永远保持 LF，与工作区设置无关。
+
+*.sh          text eol=lf
+
+# PowerShell 脚本必须保留 UTF-8 BOM：PowerShell 5.1 会把无 BOM 的 UTF-8
+# 按系统 ANSI(GBK) 解码，中文注释和 emoji 会变成乱码，甚至破坏语法结构。
+# 这里声明为 text 但交给 .ps1 自带 BOM 控制，不做 eol 转换以外的处理。
+*.ps1         text eol=crlf
+
+# 补丁文件必须保持 LF：patches/*.patch 是用 git diff 生成的，
+# 上下文行一旦被转成 CRLF，git apply 的匹配就会失败。
+*.patch       text eol=lf
+
+# 上游同步进来的子模块内容不参与属性判定
+splayer-frontend/**       -text
+workers/api/ncm-source/** -text

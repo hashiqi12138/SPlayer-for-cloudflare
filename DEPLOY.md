@@ -195,10 +195,14 @@ splayer-cloudflare/
 ├── DEPLOY.md                    # 本文档
 ├── package.json                 # 根项目配置
 ├── scripts/
-│   ├── deploy-all.ps1           # 一键部署脚本
-│   ├── deploy-pages.ps1         # 前端 Pages 部署脚本
-│   ├── deploy-api-worker.ps1    # API Worker 部署脚本
-│   └── deploy-proxy-worker.ps1  # 音乐代理部署脚本
+│   ├── deploy-all.ps1 / .sh     # 一键部署脚本（PowerShell / bash）
+│   ├── deploy-pages.ps1 / .sh   # 前端 Pages 部署脚本
+│   ├── deploy-api-worker.ps1 / .sh   # API Worker 部署脚本
+│   ├── deploy-proxy-worker.ps1 / .sh # 音乐代理部署脚本
+│   ├── deploy.mjs               # npm run deploy:* 的平台分派入口
+│   ├── lib/common.sh            # bash 侧公共库
+│   ├── prepare-pages.mjs        # 两套部署脚本共用的资源准备逻辑
+│   └── deps.mjs                 # 依赖 pin / 补丁 / 单测发布闸门
 ├── frontend-config/
 │   └── _redirects               # SPA 路由重定向配置
 ├── workers/
