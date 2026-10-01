@@ -164,6 +164,7 @@ Pages 的 Rollback 按部署生效：正式与预览各占一条部署记录，�
 | `npm ci` 报 EBUSY / 目录被占用 | 有残留的 `wrangler dev`（`workerd`）进程占着 `node_modules`，先结束它 |
 | `npm run x -- --flag` 里参数没生效 | npm 10 不会把 `--` 之后的参数转发给脚本，会静默按默认值跑。需要传参就给脚本单独起一个名字（如 `verify:full`），或用环境变量 |
 | Pages 显示部署成功，但正式域名还是旧内容 | 这次部署的分支名不等于项目的 Production branch，进的是**预览环境**。正式与预览是两条独立的部署记录。检查 `deploy.config.json` 的 `pagesProdBranch` 是否与 Pages 项目设置里的 Production branch 一致；注意「不传 `--branch`」也不行（wrangler 会探测成 `HEAD`） |
+| 部署前端时打印 `Warning: Your working directory is a git repo and has uncommitted changes` | 这是 wrangler 对着**部署目录**（子模块 `splayer-frontend`）说的 —— 该目录确实带着本仓库打的补丁，因此永远「有未提交改动」。与本次发布是否干净无关：发布是否对应一个确定提交，以 `/version.json` 的 `dirty` 和 Pages 控制台的提交号为准（两者都取本仓库） |
 
 ## 代码风格
 
