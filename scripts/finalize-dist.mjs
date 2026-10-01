@@ -24,6 +24,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { ROOT } from './lib/deploy-config.mjs'
+import { workingTreeDirty } from './lib/git-meta.mjs'
 
 const OUTPUT_DIR = path.join(ROOT, 'splayer-frontend', 'out', 'renderer')
 const CONFIG_DIR = path.join(ROOT, 'frontend-config')
@@ -83,31 +84,9 @@ for (const name of ASSET_FILES) {
 const pkg = readJson(path.join(ROOT, 'package.json')) || {}
 const depsState = readJson(DEPS_STATE)
 
-/**
- * 工作区是否「真的」有未提交改动
- *
- * 这里刻意不用 `git status --porcelain` 判空，因为它会被两类噪音长期占据，
- * 导致 dirty **永远是 true**，那这个字段就完全失去意义：
- *
- *   1. 子模块。补丁本来就写在子模块工作区里，`deps:setup` / `deps:update`
- *      之后 `splayer-frontend`、`ncm-source` 必然是「脏」的 —— 而这两步正是
- *      发布前的必经流程。上游版本由 .deps-state.json 与 version.json 的
- *      deps 字段记录，不需要靠 dirty 表达。
- *   2. 换行符。`core.autocrlf=true` 的机器上，个别工具的产物会以 CRLF 落盘，
- *      git 在比较时把它归一化回 LF，于是 `git diff` 是空的、`git status`
- *      却报「已修改」。拿它当 dirty 会让一次干净发布显示成「有未提交改动」。
- *
- * 改用 `git diff HEAD`（比的是**内容**，且忽略子模块）+ 未跟踪文件：
- * 前者过滤掉换行符噪音，后者保证「新文件还没提交」仍算 dirty。
- * 而 dirty 的真正含义就是「线上的这个提交号还准不准」。
- */
-function workingTreeDirty() {
-  const trackedChanges = git(['diff', 'HEAD', '--name-only', '--ignore-submodules=all'])
-  const untracked = git(['ls-files', '--others', '--exclude-standard'])
-  return trackedChanges.length > 0 || untracked.length > 0
-}
-
-const dirty = workingTreeDirty()
+// 判断口径与部署时传给 wrangler 的 --commit-hash / --commit-dirty 共用同一份实现
+// （scripts/lib/git-meta.mjs），否则 Pages 控制台与这里的 version.json 会互相矛盾。
+const dirty = workingTreeDirty(ROOT)
 
 const info = {
   name: pkg.name || 'splayer-cloudflare',

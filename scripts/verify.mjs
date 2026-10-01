@@ -260,6 +260,20 @@ const ourSourceFiles = walk(ROOT)
         details.push(`${key} 不是合法 http(s) 地址：${cfg[key]}`)
       }
     }
+    // 正式与预览必须落在**不同**的分支上。
+    // 两者相同时两次发布互相当作对方，正式环境就永远不会更新 ——
+    // 而脚本仍然会打印「正式环境」，属于最难察觉的一类配置错误。
+    if (
+      cfg.pagesProdBranch &&
+      cfg.pagesPreviewBranch &&
+      cfg.pagesProdBranch === cfg.pagesPreviewBranch
+    ) {
+      cfgOk = false
+      details.push(
+        `pagesProdBranch 与 pagesPreviewBranch 相同（${cfg.pagesProdBranch}）：` +
+          '正式与预览必须用不同分支，否则「发正式」等于又发了一次预览',
+      )
+    }
   } catch (e) {
     cfgOk = false
     details.push(e.message)

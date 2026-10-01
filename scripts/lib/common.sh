@@ -111,6 +111,15 @@ cfg() {
   node "$SCRIPT_DIR/get-config.mjs" "$1"
 }
 
+# 仓库状态：提交号 / 工作区是否真的脏
+#
+# 刻意不在这里手写 git 命令：`dirty` 的判断口径（忽略子模块、忽略换行符噪音）
+# 必须与 finalize-dist.mjs 写进 version.json 的结论完全一致，否则
+# 「Pages 控制台显示的提交」和「线上 /version.json 显示的提交」会互相打架。
+git_meta() {
+  node "$SCRIPT_DIR/git-meta.mjs" "$1"
+}
+
 # ------------------------------------------------------------
 # 发布闸门：依赖 pin + 补丁 + 单测
 # ------------------------------------------------------------
@@ -237,6 +246,35 @@ reject_preview_target() {
     die "该脚本不支持 --preview：Worker 只有一个正式环境" \
       "Pages 才有正式/预览之分；Worker 请去掉 --preview 后重试"
   fi
+}
+
+# 本次 Pages 发布要传给 `wrangler pages deploy --branch=` 的分支名
+#
+# 正式环境**也必须显式传 --branch**，不能靠「不传」来发正式：
+# Cloudflare 判断正式/预览的依据是「分支名是否等于项目设置的 Production branch」，
+# 而 wrangler 在不传 --branch 时会从当前 git 仓库自动探测分支 —— 部署是在
+# 子模块目录 splayer-frontend 里执行的，子模块处于 detached HEAD，探测结果为
+# `HEAD`，于是本该发正式的部署变成了一个叫 HEAD 的预览部署。
+# 实测踩到过：脚本打印「目标: 正式环境 (production)」，Pages 控制台里却是 Preview。
+#
+# pagesProdBranch 是**必需配置项**，缺了直接报错而不是猜一个默认值：
+# 猜错时部署同样会静静落到预览环境，一样看不出来。
+pages_deploy_branch() {
+  local branch=''
+  local key='pagesProdBranch'
+  # 刻意写成 if 而不是 `deploy_target_is_preview && key=...`：
+  # 后者在非预览时整条语句返回 1，虽然在 set -e 下通常不会中止，
+  # 但「依赖 set -e 的例外规则」不值得 —— 挨着它的下一行就是分支名解析。
+  if deploy_target_is_preview; then
+    key='pagesPreviewBranch'
+  fi
+
+  branch="$(cfg "$key" 2>/dev/null || true)"
+  if [ -z "$branch" ]; then
+    die "未配置 $key" \
+      "该值必须与 Cloudflare Pages 项目设置里的分支名一致（正式看 Production branch，预览填任意分支别名）"
+  fi
+  printf '%s' "$branch"
 }
 
 parse_common_args() {

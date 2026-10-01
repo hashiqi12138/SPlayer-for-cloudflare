@@ -23,6 +23,7 @@
 #   2  换行符           *.sh 必须 LF（CRLF 会让 bash 报 $'\r': command not found）
 #   3  参数解析         --help / 未知参数 / 非交互必填项 / 非法取值
 #   4  配置读取         get-config.mjs 与 bash 命令替换配合
+#   4b 发布分支         正式/预览分支名解析正确且互不相同（正式也要显式传 --branch）
 #   5  资源准备         prepare-pages.mjs 产物正确、无目录嵌套、无残留占位符
 #   6  发布闸门         依赖校验失败时必须中止在构建/部署之前
 #   7  前置检查         缺 node / 缺 npx 时给出可操作提示，而不是误导性报错
@@ -273,6 +274,33 @@ else
   node "$SCRIPTS/get-config.mjs" noSuchKey >/dev/null 2>&1
   [ $? -ne 0 ]
   chk $? "缺失键应返回非 0"
+  echo
+
+  echo "=== 4b. 发布分支解析 ==="
+  # Pages 的正式/预览是靠**分支名**区分的，而且两侧都必须显式取出来传给 --branch。
+  # 曾经踩过：正式环境靠「不传 --branch」实现，结果 wrangler 从子模块目录探测到
+  # `HEAD`，本该发正式的部署进了预览。所以这两条断言必须存在。
+  out="$(cd "$SCRIPTS" && . ./lib/common.sh >/dev/null 2>&1; DEPLOY_TARGET=prod; pages_deploy_branch)"
+  chk_contains "$out" 'main' "正式目标解析出 pagesProdBranch（实际: ${out:-空}）"
+
+  out="$(cd "$SCRIPTS" && . ./lib/common.sh >/dev/null 2>&1; DEPLOY_TARGET=preview; pages_deploy_branch)"
+  chk_contains "$out" 'dev' "预览目标解析出 pagesPreviewBranch（实际: ${out:-空}）"
+
+  # 正式与预览解析结果必须不同：相同则「发正式」等于又发一次预览
+  prod_branch="$(cd "$SCRIPTS" && . ./lib/common.sh >/dev/null 2>&1; DEPLOY_TARGET=prod; pages_deploy_branch)"
+  preview_branch="$(cd "$SCRIPTS" && . ./lib/common.sh >/dev/null 2>&1; DEPLOY_TARGET=preview; pages_deploy_branch)"
+  [ "$prod_branch" != "$preview_branch" ]
+  chk $? "正式与预览使用不同分支（$prod_branch / $preview_branch）"
+
+  # git-meta 是 version.json 与 wrangler --commit-* 共用的判断口径
+  h="$(cd "$REPO" && node "$SCRIPTS/git-meta.mjs" hash)"
+  [ ${#h} -ge 7 ]
+  chk $? "git-meta hash 返回提交号（${h:0:7}）"
+  d="$(cd "$REPO" && node "$SCRIPTS/git-meta.mjs" dirty)"
+  case "$d" in
+    true | false) chk 0 "git-meta dirty 输出 true/false（$d）" ;;
+    *) chk 1 "git-meta dirty 输出 true/false（实际: ${d:-空}）" ;;
+  esac
   echo
 
   echo "=== 5. 准备部署资源（prepare-pages.mjs）==="

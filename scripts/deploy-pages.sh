@@ -50,6 +50,16 @@ check_login 0
 echo
 
 # ------------------------------------------------------------
+# 发布目标（项目名 + 分支名）提前解析并校验
+#
+# 刻意放在构建之前：分支名没配属于配置问题，而后面是几分钟的前端构建 ——
+# 等构建跑完才发现「pagesProdBranch 没填」，纯属浪费。
+# ------------------------------------------------------------
+PROJECT_NAME="$(cfg pagesProject)"
+BRANCH="$(pages_deploy_branch)"
+echo
+
+# ------------------------------------------------------------
 # API 地址：默认走相对路径，由 Pages Functions 转发
 # ------------------------------------------------------------
 if is_interactive && [ -z "${API_URL:-}" ]; then
@@ -136,35 +146,52 @@ echo
 # 部署到 Pages
 #
 # 目标环境是**显式选择**，不是隐含默认：
-#   默认（不带参数） -> 正式环境。不加 --branch，Pages 视为 production，
-#                       落到项目主域名（pagesProdUrl）
-#   --preview        -> 预览环境。加到 pagesPreviewBranch 指定的分支别名上
+#   默认（不带参数） -> 正式环境，分支名为 pagesProdBranch（须与 Pages 项目设置里的
+#                       Production branch 一致），落到项目主域名（pagesProdUrl）
+#   --preview        -> 预览环境，分支名为 pagesPreviewBranch
 #                       （<branch>.<project>.pages.dev）
 #
+# 两侧都必须显式传 --branch —— 不能靠「不传」来发正式：wrangler 不传时会从当前
+# git 仓库自动探测分支，而这里是在子模块目录里部署，探测结果是 `HEAD`，
+# 于是本该发正式的部署会变成一个叫 HEAD 的预览部署（踩过：脚本打印「正式环境」，
+# Pages 控制台里却是 Preview）。判断依据见 lib/common.sh 的 pages_deploy_branch。
+#
 # 以前配置里写死了 pagesBranch=dev，于是每次部署都发预览、正式环境一直是空的。
-# 现在配置拆成两组，且默认发正式 —— 「发哪里」不再取决于配置里碰巧写了什么。
 # ------------------------------------------------------------
-PROJECT_NAME="$(cfg pagesProject)"
 if deploy_target_is_preview; then
-  BRANCH="$(cfg pagesPreviewBranch || true)"
-  [ -n "$BRANCH" ] || die "未配置 pagesPreviewBranch" "预览发布需要指定分支别名，例如 dev"
   TARGET_DESC="预览环境（分支别名 $BRANCH）"
-  BRANCH_ARGS=("--branch=$BRANCH")
   ACCESS_URL="$(cfg pagesPreviewUrl 2>/dev/null || true)"
 else
-  TARGET_DESC='正式环境 (production)'
-  BRANCH_ARGS=()
+  TARGET_DESC="正式环境 (production，分支 $BRANCH)"
   ACCESS_URL="$(cfg pagesProdUrl 2>/dev/null || true)"
 fi
 [ -n "$ACCESS_URL" ] || ACCESS_URL="https://$PROJECT_NAME.pages.dev"
 
+# 提交信息也要显式传：wrangler 默认从**执行目录**（子模块 splayer-frontend）取 git
+# 信息，Pages 控制台上显示的会是上游 SPlayer 的提交，与 /version.json 里的本仓库
+# 提交号对不上，核对线上版本时会白跑一趟。
+COMMIT_HASH="$(git_meta hash || true)"
+COMMIT_DIRTY="$(git_meta dirty || true)"
+
 log_step "部署到 Cloudflare Pages"
 log_dim "项目: $PROJECT_NAME"
 log_dim "目标: $TARGET_DESC"
+if [ -n "$COMMIT_HASH" ]; then
+  log_dim "提交: $(printf '%s' "$COMMIT_HASH" | cut -c1-7)"
+else
+  log_warn "取不到 git 提交号，Pages 控制台上的提交信息会不准确"
+fi
 echo
 
-npx --no-install wrangler pages deploy out/renderer \
-  --project-name="$PROJECT_NAME" "${BRANCH_ARGS[@]+"${BRANCH_ARGS[@]}"}"
+DEPLOY_ARGS=(--project-name="$PROJECT_NAME" --branch="$BRANCH")
+if [ -n "$COMMIT_HASH" ]; then
+  DEPLOY_ARGS+=(--commit-hash="$COMMIT_HASH")
+fi
+if [ -n "$COMMIT_DIRTY" ]; then
+  DEPLOY_ARGS+=(--commit-dirty="$COMMIT_DIRTY")
+fi
+
+npx --no-install wrangler pages deploy out/renderer "${DEPLOY_ARGS[@]}"
 
 echo
 banner "前端部署完成"

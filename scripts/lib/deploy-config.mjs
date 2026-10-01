@@ -22,18 +22,39 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export const ROOT = path.resolve(__dirname, '..', '..')
 export const CONFIG_FILE = path.join(ROOT, 'deploy.config.json')
 
-/** 部署链路必需的字段 */
-export const REQUIRED_CONFIG_KEYS = ['apiWorkerUrl', 'proxyWorkerUrl', 'pagesProject']
+/**
+ * 部署链路必需的字段
+ *
+ * pagesProdBranch 放在必需项而不是给默认值，是有意的：它必须与 Cloudflare Pages
+ * 项目设置里的 Production branch **完全一致**，而这个值只有使用者知道。
+ * 给一个「看起来合理」的默认值（比如 main）反而危险 —— 猜错时部署会静静进到预览
+ * 环境，而脚本仍然打印「正式环境」，从输出上完全看不出来。缺了就报错更安全。
+ */
+export const REQUIRED_CONFIG_KEYS = [
+  'apiWorkerUrl',
+  'proxyWorkerUrl',
+  'pagesProject',
+  'pagesProdBranch',
+]
 
 /**
  * 可选字段（缺失时由调用方给默认值）
  *
- * Pages 区分正式与预览两个环境，因此地址和分支是分开的两组：
- *   - pagesProdUrl      正式地址（Pages 项目主域名）
+ * Pages 区分正式与预览两个环境，因此分支和地址是分开的两组：
+ *   - pagesProdBranch    正式分支名（必需，见上）
+ *   - pagesProdUrl       正式地址（Pages 项目主域名）
  *   - pagesPreviewBranch 预览分支别名（--preview 发布时用）
- *   - pagesPreviewUrl   预览地址（<branch>.<project>.pages.dev）
+ *   - pagesPreviewUrl    预览地址（<branch>.<project>.pages.dev）
  * 之前只有一组（pagesBranch/pagesUrl），结果每次发布都发到 dev 预览分支，
- * 正式环境一次都没发过 —— 分成两组后，「发哪里」是显式选择而不是隐含默认。
+ * 正式环境一次都没发过 —— 分开之后，「发哪里」是显式选择而不是隐含默认。
+ *
+ * 关于为什么正式也必须显式传 --branch
+ * ---------------------------------
+ * Cloudflare Pages 把「分支名等于项目 Production branch 的那次部署」视为正式部署。
+ * 不能靠「不传 --branch」来发正式：wrangler 不传时会从当前 git 仓库自动探测分支，
+ * 而部署是在子模块目录（splayer-frontend）里执行的，子模块是 detached HEAD，
+ * 探测出来是 `HEAD` —— 于是本该发正式的部署变成了一个叫 HEAD 的预览部署。
+ * 实测就是这么发生的：脚本打印「目标: 正式环境」，Pages 控制台里却是 Preview。
  */
 export const OPTIONAL_CONFIG_KEYS = ['pagesProdUrl', 'pagesPreviewBranch', 'pagesPreviewUrl']
 

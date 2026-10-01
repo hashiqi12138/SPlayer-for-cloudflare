@@ -91,6 +91,19 @@ if (-not $deployConfig.apiWorkerUrl -or -not $deployConfig.proxyWorkerUrl) {
     exit 1
 }
 
+# pagesProdBranch 提前到这里校验：放到最后一段的话，要等前端整轮构建跑完
+# （几分钟）才发现「分支名没配」，纯属浪费时间。
+if (-not $Preview -and [string]::IsNullOrWhiteSpace($deployConfig.pagesProdBranch)) {
+    Write-Host "❌ deploy.config.json 缺少 pagesProdBranch" -ForegroundColor Red
+    Write-Host "   该值要与 Cloudflare Pages 项目设置里的 Production branch 完全一致" -ForegroundColor Yellow
+    exit 1
+}
+if ($Preview -and [string]::IsNullOrWhiteSpace($deployConfig.pagesPreviewBranch)) {
+    Write-Host "❌ deploy.config.json 缺少 pagesPreviewBranch" -ForegroundColor Red
+    Write-Host "   预览发布需要一个分支别名（例如 dev）" -ForegroundColor Yellow
+    exit 1
+}
+
 # API 地址：默认走相对路径，由 Pages Functions 转发。
 # -NonInteractive 时不再询问，直接取默认值。
 if ($NonInteractive) {
@@ -211,13 +224,18 @@ Write-Host ""
 # 部署到 Pages
 #
 # 目标环境是**显式选择**，不是隐含默认：
-#   默认（不带 -Preview）-> 正式环境。不加 --branch，Pages 视为 production，
-#                           落到项目主域名（pagesProdUrl）
-#   -Preview            -> 预览环境。加到 pagesPreviewBranch 指定的分支别名上
+#   默认（不带 -Preview）-> 正式环境，分支名为 pagesProdBranch（须与 Pages 项目设置里的
+#                          Production branch 一致），落到项目主域名（pagesProdUrl）
+#   -Preview            -> 预览环境，分支名为 pagesPreviewBranch
+#
+# 两侧都必须显式传 --branch —— 不能靠「不传」来发正式：wrangler 不传时会从当前
+# git 仓库自动探测分支，而这里是在子模块目录里部署，探测结果是 `HEAD`，
+# 于是本该发正式的部署会变成一个叫 HEAD 的预览部署（踩过：脚本打印「正式环境」，
+# Pages 控制台里却是 Preview）。
 #
 # 以前配置里写死了 pagesBranch=dev，于是每次部署都发预览、正式环境一直是空的。
-# 现在配置拆成两组，且默认发正式。
 $projectName = $deployConfig.pagesProject
+
 if ($Preview) {
     $branch = $deployConfig.pagesPreviewBranch
     if ([string]::IsNullOrWhiteSpace($branch)) {
@@ -227,23 +245,48 @@ if ($Preview) {
     $targetDesc = "预览环境（分支别名 $branch）"
     $accessUrl = if ($deployConfig.pagesPreviewUrl) { $deployConfig.pagesPreviewUrl } else { "https://$branch.$projectName.pages.dev" }
 } else {
-    $branch = $null
-    $targetDesc = "正式环境 (production)"
+    $branch = $deployConfig.pagesProdBranch
+    if ([string]::IsNullOrWhiteSpace($branch)) {
+        Write-Host "❌ 未配置 pagesProdBranch：正式发布必须显式指定分支名" -ForegroundColor Red
+        Write-Host "   该值要与 Cloudflare Pages 项目设置里的 Production branch 完全一致" -ForegroundColor Yellow
+        exit 1
+    }
+    $targetDesc = "正式环境 (production，分支 $branch)"
     $accessUrl = if ($deployConfig.pagesProdUrl) { $deployConfig.pagesProdUrl } else { "https://$projectName.pages.dev" }
 }
+
+# 提交信息也要显式传：wrangler 默认从**执行目录**（子模块 splayer-frontend）取 git
+# 信息，Pages 控制台上显示的会是上游 SPlayer 的提交，与 /version.json 里的本仓库
+# 提交号对不上，核对线上版本时会白跑一趟。
+# 判断口径走 scripts/git-meta.mjs，与 finalize-dist.mjs 写进 version.json 的完全一致。
+$commitHash = (& node (Join-Path $ScriptDir "git-meta.mjs") hash 2>$null | Out-String).Trim()
+$commitDirty = (& node (Join-Path $ScriptDir "git-meta.mjs") dirty 2>$null | Out-String).Trim()
 
 Write-Host "🚀 部署到 Cloudflare Pages..." -ForegroundColor Yellow
 Write-Host "   项目: $projectName" -ForegroundColor Gray
 Write-Host "   目标: $targetDesc" -ForegroundColor Gray
+if ([string]::IsNullOrWhiteSpace($commitHash)) {
+    Write-Host "   ⚠️  取不到 git 提交号，Pages 控制台上的提交信息会不准确" -ForegroundColor Yellow
+} else {
+    Write-Host "   提交: $($commitHash.Substring(0, [Math]::Min(7, $commitHash.Length)))" -ForegroundColor Gray
+}
 Write-Host ""
+
+$deployArgs = @(
+    "pages", "deploy", "out/renderer",
+    "--project-name=$projectName",
+    "--branch=$branch"
+)
+if (-not [string]::IsNullOrWhiteSpace($commitHash)) {
+    $deployArgs += "--commit-hash=$commitHash"
+}
+if (-not [string]::IsNullOrWhiteSpace($commitDirty)) {
+    $deployArgs += "--commit-dirty=$commitDirty"
+}
 
 Push-Location $FrontendDir
 try {
-    if ([string]::IsNullOrWhiteSpace($branch)) {
-        & npx --no-install wrangler pages deploy out/renderer --project-name=$projectName
-    } else {
-        & npx --no-install wrangler pages deploy out/renderer --project-name=$projectName --branch=$branch
-    }
+    & npx --no-install wrangler @deployArgs
     if ($LASTEXITCODE -ne 0) {
         throw "部署失败"
     }
