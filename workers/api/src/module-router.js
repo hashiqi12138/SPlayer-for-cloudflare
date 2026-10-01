@@ -10,6 +10,28 @@
 import { createRequest } from './ncm-request-handler.js'
 import createOption from './option.js'
 
+/**
+ * 决定本次请求使用哪份 cookie
+ *
+ * 规则：显式传入的 cookie（查询参数 / 表单）优先；都没有时才回退到
+ * req.cookies 或 Cookie 头。
+ *
+ * 这条规则曾经是导致「歌曲无法播放」的直接原因：中间件把 req.cookies 恒置为对象，
+ * 原来的代码无条件 `query.cookie = req.cookies`，把 URL 上的 cookie 参数覆盖成空，
+ * 前端登录态整体丢失（表现为 song/url 返回 code 404）。
+ *
+ * 抽成纯函数是为了能被离线单测覆盖 —— 这个判断逻辑不该只在联调时靠运气验证。
+ *
+ * @param {string|object} explicitCookie 查询参数 / 表单里显式传入的 cookie
+ * @param {object} cookies 中间件解析出的 cookie 对象
+ * @param {string|undefined} headerCookie 原始 Cookie 请求头
+ */
+export function resolveRequestCookie(explicitCookie, cookies, headerCookie) {
+  if (explicitCookie && Object.keys(explicitCookie).length > 0) return explicitCookie
+  if (Object.keys(cookies || {}).length > 0) return cookies
+  return headerCookie || {}
+}
+
 export function registerModules(app) {
   // ===== 歌曲播放地址 v1 =====
   // 原模块依赖 unblockmusic-utils（解灰），此处退化为普通 eapi 请求
@@ -60,10 +82,7 @@ function handleModule(moduleFn) {
       // req.cookies 恒为对象（见 index.js 的 cookie 中间件），无条件赋值会把
       // URL 上的 cookie 参数覆盖成空对象，导致前端登录态完全丢失。
       const query = { ...req.query, ...req.body }
-      if (!query.cookie) {
-        query.cookie =
-          Object.keys(req.cookies || {}).length > 0 ? req.cookies : req.headers.cookie || {}
-      }
+      query.cookie = resolveRequestCookie(query.cookie, req.cookies, req.headers.cookie)
 
       const ip = req.ip || req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || ''
 

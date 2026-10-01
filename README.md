@@ -81,18 +81,38 @@ commit）并未改动。用 `npm run deps:status` 可以准确判断补丁与版
 ## 开发与测试
 
 ```bash
-npm run dev:api        # 本地起 API Worker（默认 8788）
-npm run build:api      # 由 ncm-source 重建 src/generated-routes.js
-npm run test:api       # 接口测试（默认打本地 8788）
-npm run test:scripts   # 部署脚本自检（不需要凭据/网络，不会触发真实部署）
+npm run setup:worker-deps   # 安装 workers/api 自己的依赖（首次或依赖变更后）
+npm run dev:api             # 本地起 API Worker（默认 8788）
+npm run build:api           # 由 ncm-source 重建 src/generated-routes.js
+npm run verify              # 仓库自检门禁（CI 跑的就是这条命令）
+npm test                    # 离线单元测试
+npm run test:api            # 联网接口测试（默认打本地 8788）
+npm run test:scripts        # 部署脚本自检
 ```
 
-`test:scripts` 覆盖 bash 与 PowerShell 两套部署脚本的公共行为：语法、换行符、
-参数解析、配置读取、资源准备、发布闸门、前置检查报错是否可操作。
-MSYS2 下若 node 不在 PATH，用 `NODE_DIR="C:\...\node" npm run test:scripts` 指定。
+### 三层测试
 
-接口测试共 69 个用例，覆盖搜索/歌曲/歌单/登录/播放链路/加解密/解锁等。
-带登录态运行：
+| 命令 | 覆盖内容 | 需要网络 | 用途 |
+|---|---|---|---|
+| `npm test` | cookie 解析与优先级、eapi 请求体、状态码映射、解锁开关与主机白名单 | 否 | 每次改动都跑，几百毫秒 |
+| `npm run test:scripts` | 部署脚本的语法、参数解析、发布闸门、前置检查报错 | 否 | 改部署流程时跑 |
+| `npm run test:api` | 69 个接口用例（搜索/歌曲/歌单/登录/播放链路/加解密/解锁） | 是 | 发版前或排查线上问题时跑 |
+
+前两层都被 `npm run verify` 收进门禁，所以常规改动只需要记住一条命令。
+第三层依赖外网与真实登录态、结果不稳定，因此不进常规门禁，只在
+`workflow_dispatch` 时于 CI 中执行。
+
+单元测试刻意只覆盖「纯逻辑」——不 mock 网络往返，而是把 `globalThis.fetch` 换成探针，
+让请求构造与响应映射真实跑一遍。这样既保留了对真实代码路径的覆盖，又不依赖外网。
+它优先盯的是**已经真实坏过的地方**，例如：
+
+- cookie 串按 `"; "` 切分会把 `MUSIC_U=xxx;os=pc;` 解析成空，登录态整体丢失
+- `req.cookies` 无条件覆盖 URL 上的 cookie 参数，导致 `song/url` 返回 `code 404`
+- eapi 请求缺少 `data.header`，`song/enhance/player/url` 系列直接 404
+- 多个 `Set-Cookie` 用 `headers.get()` 读会被逗号拼成一串，而 `Expires` 自带逗号
+- 音频代理的主机白名单被后缀绕过（`kw.kuwo.cn.evil.com`）
+
+接口测试带登录态运行：
 
 ```bash
 $env:NCM_COOKIE="MUSIC_U=xxx;os=pc;"   # PowerShell

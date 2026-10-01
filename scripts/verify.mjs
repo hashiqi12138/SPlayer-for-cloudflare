@@ -363,7 +363,44 @@ const ourSourceFiles = walk(ROOT)
 }
 
 // ------------------------------------------------------------
-// 10. 部署脚本自检（需要 bash）
+// 10. 离线单元测试
+//
+// 这是整个门禁里最重要的一项：接口集成测试要外网与登录态，只有这里能在
+// 每次提交前把「cookie 解析、cookie 优先级、eapi 请求体、状态码映射」这类
+// 真实踩过的坑跑一遍，而且只要几百毫秒。
+//
+// 依赖 workers/api 自己的 node_modules（crypto-js 等），与根目录是两套。
+// ------------------------------------------------------------
+{
+  const workerDeps = path.join(ROOT, 'workers', 'api', 'node_modules', 'crypto-js')
+  if (!fs.existsSync(workerDeps)) {
+    record(false, '单元测试', [
+      '缺少 workers/api 依赖（crypto-js），无法运行',
+      '请执行: npm run setup:worker-deps',
+    ])
+  } else {
+    const r = run(
+      process.execPath,
+      ['--test', '--test-reporter=tap', 'workers/api/test/**/*.test.mjs'],
+      { stdio: 'pipe' },
+    )
+    const out = `${r.stdout || ''}${r.stderr || ''}`
+    const failed = out
+      .split('\n')
+      .filter((l) => /^\s*not ok /.test(l))
+      .map((l) => l.trim().slice(0, 120))
+    const summary = /^# tests (\d+)/m.exec(out)
+    const passed = /^# pass (\d+)/m.exec(out)
+    record(
+      r.status === 0,
+      `单元测试通过（${passed ? passed[1] : '?'}/${summary ? summary[1] : '?'}）`,
+      failed,
+    )
+  }
+}
+
+// ------------------------------------------------------------
+// 11. 部署脚本自检（需要 bash）
 // ------------------------------------------------------------
 {
   const bash = SKIP_BASH ? null : posixBash()
@@ -388,7 +425,7 @@ const ourSourceFiles = walk(ROOT)
 }
 
 // ------------------------------------------------------------
-// 11. 生成物可复现（--with-build）
+// 12. 生成物可复现（--with-build）
 // ------------------------------------------------------------
 if (WITH_BUILD) {
   const buildScript = path.join(ROOT, 'workers', 'api', 'scripts', 'build-modules.cjs')

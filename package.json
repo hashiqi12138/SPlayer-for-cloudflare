@@ -10,9 +10,10 @@
   "scripts": {
     "login": "npx wrangler login",
     "verify": "node scripts/verify.mjs",
-    "test": "node --test workers/api/test/",
+    "test": "node --test --test-reporter=spec \"workers/api/test/**/*.test.mjs\"",
     "test:api": "node workers/api/scripts/test-api.cjs",
     "test:scripts": "bash scripts/tests/deploy-scripts.test.sh",
+    "setup:worker-deps": "npm ci --prefix workers/api",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "deps:status": "node scripts/deps.mjs status",

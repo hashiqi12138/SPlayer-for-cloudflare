@@ -73,8 +73,14 @@ export function getAnonymousToken() {
 
 // ============================================================
 // 工具函数
+//
+// 这几个函数导出是为了能被 workers/api/test 下的离线单测直接覆盖。
+// 它们看起来只是字符串处理，但线上真的因此坏过：
+//   - cookie 按 "; " 切分时，"MUSIC_U=xxx;os=pc;" 解析不出任何字段，登录态全丢
+//   - createHeaderCookie 决定发往网易云的 Cookie 头，字段缺失会导致鉴权失败
+// 这类逻辑不该只靠「跑一遍联网集成测试」来验证。
 // ============================================================
-function cookieToJson(cookieStr) {
+export function cookieToJson(cookieStr) {
   if (!cookieStr) return {}
   const result = {}
   String(cookieStr)
@@ -93,7 +99,7 @@ function cookieToJson(cookieStr) {
   return result
 }
 
-function cookieObjToString(cookieObj) {
+export function cookieObjToString(cookieObj) {
   const parts = []
   for (const [key, value] of Object.entries(cookieObj)) {
     parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
@@ -111,7 +117,7 @@ function generateRandomString(length) {
 }
 
 // 对应 ncm-source/util/request.js 的 createHeaderCookie
-function createHeaderCookie(header) {
+export function createHeaderCookie(header) {
   return Object.keys(header)
     .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(header[key])}`)
     .join('; ')
@@ -167,7 +173,7 @@ function chooseUserAgent(crypto, uaType = 'pc') {
   return (userAgentMap[crypto] && userAgentMap[crypto][uaType]) || ''
 }
 
-function processCookieObject(cookie, crypto) {
+export function processCookieObject(cookie, crypto) {
   const _ntes_nuid = CryptoJS.lib.WordArray.random(32).toString()
   const os = osMap[cookie.os] || osMap.pc
 

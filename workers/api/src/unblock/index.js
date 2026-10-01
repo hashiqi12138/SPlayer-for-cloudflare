@@ -77,7 +77,8 @@ const DEBUG_HEADER_PARAMS = {
   ua: 'User-Agent',
 }
 
-function buildDebugHeaders(query = {}) {
+// 导出供测试使用：它是一道安全边界（只能覆盖白名单头，不能注入任意请求头）
+export function buildDebugHeaders(query = {}) {
   if (query.debug !== '1') return {}
   const out = {}
   for (const [param, header] of Object.entries(DEBUG_HEADER_PARAMS)) {
@@ -96,7 +97,8 @@ function buildDebugHeaders(query = {}) {
  * 若部署到中国大陆出口，把 ENABLE_UNBLOCK 改为 "true" 重新部署即可恢复，
  * 无需改动任何代码。
  */
-function isUnblockEnabled() {
+// 导出供 workers/api/test 的离线单测使用（默认关闭这件事值得有回归测试守着）
+export function isUnblockEnabled() {
   return String(globalThis.CF_ENV?.ENABLE_UNBLOCK ?? 'false') === 'true'
 }
 
