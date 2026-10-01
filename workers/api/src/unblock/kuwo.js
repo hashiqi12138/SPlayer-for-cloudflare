@@ -18,9 +18,9 @@ const KUWO_UA = 'okhttp/3.10.0';
 /**
  * 搜索并匹配出酷我歌曲 ID
  * @param {{keyword: string, songName?: string, artist?: string}} match
- * @returns {Promise<string|null>}
+ * @returns {Promise<{songId: string|null, candidates: any[], matched: boolean}>}
  */
-async function getKuwoSongId(match) {
+async function searchKuwo(match) {
   const url =
     'https://search.kuwo.cn/r.s?&correct=1&stype=comprehensive&encoding=utf8' +
     '&rformat=json&mobi=1&show_copyright_off=1&searchapi=6&all=' +
@@ -30,29 +30,46 @@ async function getKuwoSongId(match) {
   const data = JSON.parse(text);
 
   const abslist = data?.content?.[1]?.musicpage?.abslist;
-  if (!Array.isArray(abslist) || abslist.length < 1) return null;
+  const candidates = Array.isArray(abslist)
+    ? abslist.map((it) => ({
+        songName: it?.SONGNAME,
+        artist: it?.ARTIST,
+        rid: it?.MUSICRID,
+      }))
+    : [];
 
-  for (const item of abslist) {
-    const rid = item?.MUSICRID;
+  for (const it of candidates) {
+    const rid = it?.rid;
     if (!rid) continue;
-    if (isSongMatch(item?.SONGNAME || '', item?.ARTIST || '', match)) {
-      return String(rid).replace(/^MUSIC_/, '');
+    if (isSongMatch(it?.songName || '', it?.artist || '', match)) {
+      return {
+        songId: String(rid).replace(/^MUSIC_/, ''),
+        candidates,
+        matched: true,
+      };
     }
   }
-  return null;
+  return { songId: null, candidates, matched: false };
 }
 
 /**
  * 获取酷我歌曲播放地址
  * @param {{keyword: string, songName?: string, artist?: string}} match
- * @returns {Promise<{code: number, url: string|null}>}
+ * @returns {Promise<{code: number, url: string|null, reason?: string, debug?: object}>}
  */
 async function getKuwoSongUrl(match) {
   try {
     if (!match?.keyword) return { code: 404, url: null, reason: 'empty-keyword' };
 
-    const songId = await getKuwoSongId(match);
-    if (!songId) return { code: 404, url: null, reason: 'no-match' };
+    const { songId, candidates, matched } = await searchKuwo(match);
+    if (!songId) {
+      return {
+        code: 404,
+        url: null,
+        reason: 'no-match',
+        debug: { candidateCount: candidates.length, candidates: candidates.slice(0, 5) },
+      };
+    }
 
     const query = encryptQuery(
       `corp=kuwo&source=${PACKAGE_NAME}&p2p=1&type=convert_url2&sig=0&format=mp3&rid=${songId}`,
@@ -61,17 +78,28 @@ async function getKuwoSongUrl(match) {
       headers: { 'User-Agent': KUWO_UA },
     });
 
-    const matched = text.match(/http[^\s$"]+/);
-    if (!matched) return { code: 404, url: null, reason: 'no-url' };
+    const matchedUrl = text.match(/http[^\s$"]+/);
+    if (!matchedUrl) {
+      return {
+        code: 404,
+        url: null,
+        reason: 'no-url',
+        debug: { songId, matched, candidateCount: candidates.length, raw: text.slice(0, 200) },
+      };
+    }
 
-    return { code: 200, url: toHttps(matched[0]) };
+    return {
+      code: 200,
+      url: toHttps(matchedUrl[0]),
+      debug: { songId, candidateCount: candidates.length, candidates: candidates.slice(0, 5) },
+    };
   } catch (err) {
     const reason =
       err?.name === 'TimeoutError' || /timeout/i.test(err?.message || '')
         ? 'timeout'
         : 'error';
     console.error('[unblock/kuwo]', reason, err?.message || err);
-    return { code: 404, url: null, reason };
+    return { code: 404, url: null, reason, debug: { error: err?.message } };
   }
 }
 

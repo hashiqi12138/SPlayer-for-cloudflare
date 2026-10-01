@@ -19,14 +19,36 @@
 对接前端 `src/api/song.ts`（`baseURL: "/api/unblock"`）与 `docs/api.md` 的 UnblockAPI 契约。
 实现位于 `src/unblock/`，响应统一为 `{ code, url }`，HTTP 恒为 200。
 
-| 音源 | 路由 | Cloudflare 出口 | 说明 |
-|---|---|---|---|
-| 酷我 | `GET /api/unblock/kuwo?keyword=` | ✅ 可用 | 搜索匹配 + DES 加密取直链，主力音源 |
-| 波点 | `GET /api/unblock/bodian?keyword=` | ❌ 地区限制 | 上游返回 407「仅限中国大陆地区使用」 |
-| 网易云 | `GET /api/unblock/netease?id=` | ❌ 源站封禁 | GD 音乐台对 Cloudflare 出口返回 403 |
+| 音源 | 路由 | Cloudflare 出口 | 境内出口 | 说明 |
+|---|---|---|---|---|
+| 酷我 | `GET /api/unblock/kuwo?keyword=` | ❌ 占位片段 | ✅ 完整歌曲 | 搜索匹配 + DES 加密取直链 |
+| 波点 | `GET /api/unblock/bodian?keyword=` | ❌ 地区限制 | ✅ 可用 | 上游返回 407「仅限中国大陆地区使用」 |
+| 网易云 | `GET /api/unblock/netease?id=` | ❌ 源站封禁 | ✅ 可用 | GD 音乐台对 Cloudflare 出口返回 403 |
+
+> **重要结论：解锁功能在 Cloudflare 出口无法真正工作。** 三大音源均按出口 IP
+> 做地域/反盗链限制。其中酷我最具迷惑性：搜索与加密均正常，接口也返回 200，
+> 但下发的直链在 Cloudflare 出口实测是**固定的 15.6KB 占位音频**
+> （所有歌曲同一资源），它是合法 MP3、能通过 Range 校验，实际只有约 0.4 秒。
+> 同一 rid 境内直连为 2.0MB 完整歌曲，可确认是出口 IP 导致的降级。
+>
+> 为此接口增加了**占位片段拦截**（`getAudioTotalBytes` + `MIN_VALID_AUDIO_BYTES`），
+> 命中时返回 `code:404, reason:"stub-audio"`，避免前端「假成功」后播放中断。
+>
+> 若要让解锁真正可用，需把该接口部署到**中国大陆出口**的运行时
+> （如境内 VPS / 自建服务），Cloudflare 免费版无法指定中国出口。
 
 - DES 加密（`src/unblock/kwdes.js`）由前端 `electron/server/unblock/kwDES.js` 原样移植，纯 JS BigInt，无需 Node 原生加密。
-- 返回直链统一升级为 https（实测酷我 CDN 支持），否则 https 页面会因混合内容被拦截。
+- **必须经过音频代理**（`src/unblock/audio-proxy.js`）：前端 `AudioElementPlayer`
+  固定 `crossOrigin = "anonymous"`，而酷我 CDN 实测不返回任何 CORS 头，
+  直接返回原站直链浏览器会拒绝加载 —— 这正是上游默认关闭酷我音源的原因。
+  代理返回**同源相对路径**（`/api/unblock/audio/<host>/<path>`），保留 `.mp3`
+  扩展名（前端据此推断格式），只放行白名单音源主机，避免成为开放代理。
+  需要原始直链时传 `raw=1`。
+- 前端默认值补丁：Web 端「音乐解锁」设置项是 Electron 专属
+  （`config/play.ts` 中 `show: isElectron`），浏览器中无法开启音源。
+  而本部署出口只有酷我可用，故把 `songUnlockServer` 默认值改为三个音源全开
+  （`setting.ts` 与 `migrations/settingMigrations.ts`）。
+  补丁由 `scripts/deploy-pages.ps1` 自动应用，重新 clone 前端后依然生效。
 - 失败响应附带 `reason`（`no-match` / `region-locked` / `source-blocked` / `timeout` 等），
   前端契约只认 `code`/`url`，多余字段仅用于运维排查与测试分类。
 - 后两个音源在国内出口 IP 下实测均可用，属**部署出口位置**问题而非实现缺陷。
@@ -48,8 +70,10 @@
 
 1. **网易云风控（-462）**：Cloudflare 出口 IP 触发人机验证。属环境问题，
    换住宅/自建出口 IP 可恢复；测试脚本已单独归类，不计入失败率。
-2. **解锁音源出口限制**：酷我可用；波点（407 地区限制）与网易云聚合接口
-   （403 封禁）拒绝 Cloudflare 出口。同为环境问题，已归入「受限」分类。
+2. **解锁音源出口限制（当前不可用）**：酷我下发占位片段（`stub-audio`）、
+   波点 407 地区限制、网易云聚合接口 403。三者均按出口 IP 限制，
+   在 Cloudflare 出口下解锁无法真正生效；境内出口实测均可返回完整歌曲。
+   已归入「受限」分类，不计失败。
 3. **解锁接口耗时**：酷我解密为纯 JS 大数运算，叠加跨境网络，实测 2～25s，
    明显慢于本地。前端并发请求三音源并取首个成功，可缓解感知延迟。
 4. **CPU 时间限制**：免费版单请求 10ms CPU。加密与多步请求接口可能超时。
@@ -79,6 +103,12 @@ node scripts/probe-unblock-api.cjs http://127.0.0.1:8788
 # 6. 解锁多音源 × 多样例矩阵对比
 node scripts/probe-unblock-samples.cjs http://127.0.0.1:8788
 
-# 7. 解锁端到端：拿到直链并实际拉流校验可播放性
+# 7. 解锁端到端：经 Pages 拿到直链，实际拉流并校验 CORS / 音频类型
 node scripts/probe-unblock-playable.cjs https://dev.splayer-dvj.pages.dev
+
+# 8. 解锁接口耗时采样（跨境链路抖动排查）
+node scripts/probe-unblock-latency.cjs https://ncm-api.liujieahu.workers.dev 3
+
+# 9. 校验线上产物中酷我音源默认已启用
+node scripts/probe-unlock-default.cjs https://dev.splayer-dvj.pages.dev
 ```
