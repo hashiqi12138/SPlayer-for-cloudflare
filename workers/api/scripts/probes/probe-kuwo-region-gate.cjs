@@ -28,7 +28,7 @@ const KW_DES = require('url').pathToFileURL(
     'kwDES.js',
   ),
 ).href
-const cfg = require('./config.cjs')
+const cfg = require('../config.cjs')
 
 const WORKER = cfg.apiWorkerUrl
 

@@ -2,7 +2,7 @@
  * 测量解锁接口在目标环境的真实耗时（多次采样）
  * 用法: node scripts/probe-unblock-latency.cjs [base-url] [rounds]
  */
-const cfg = require('./config.cjs')
+const cfg = require('../config.cjs')
 
 const BASE = process.argv[2] || cfg.apiWorkerUrl
 const ROUNDS = Number(process.argv[3]) || 3

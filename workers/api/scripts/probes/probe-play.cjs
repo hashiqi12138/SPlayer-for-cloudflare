@@ -19,7 +19,7 @@ const UA = 'NeteaseMusic 9.0.90/5038 (iPhone; iOS 16.2; zh_CN)'
 const COOKIE = process.env.NCM_COOKIE || ''
 const SONG_IDS = process.argv.slice(2).length ? process.argv.slice(2) : ['2702937653', '3342319503']
 
-const cfg = require('./config.cjs')
+const cfg = require('../config.cjs')
 
 const TARGETS = [
   ['本地 dev', 'http://127.0.0.1:8788'],

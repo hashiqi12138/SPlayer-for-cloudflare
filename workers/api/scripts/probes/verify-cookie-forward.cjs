@@ -10,7 +10,7 @@
  *
  * 退出码: 0 = 全部通过, 1 = 存在失败
  */
-const cfg = require('./config.cjs')
+const cfg = require('../config.cjs')
 
 const BASE = process.argv[2] || cfg.apiWorkerUrl
 const COOKIE = process.env.NCM_COOKIE || ''

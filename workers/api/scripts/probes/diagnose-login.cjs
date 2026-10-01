@@ -15,7 +15,7 @@ const path = require('path')
 const axios = require('axios')
 const enc = require(path.join(__dirname, '..', 'ncm-source', 'util', 'crypto.js'))
 
-const cfg = require('./config.cjs')
+const cfg = require('../config.cjs')
 
 const BASE = process.argv[2] || cfg.apiWorkerUrl
 const COOKIE = process.env.NCM_COOKIE || ''

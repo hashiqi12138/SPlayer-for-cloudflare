@@ -347,6 +347,38 @@ function killTree(pid) {
   }
 }
 
+/**
+ * 确保开发端口被释放（尽力而为）
+ *
+ * 仅仅 kill 外层 shell 不够：`npx wrangler dev` 会再派生出 workerd 子进程，
+ * 实测出现过残留的 workerd 一直占着 workers/api/node_modules，导致后续
+ * `npm ci` 报 EBUSY。这里在收尾时按端口再清一次。
+ *
+ * 不抛错、不影响测试结论 —— 它只是善后。
+ */
+function freePort(port) {
+  try {
+    if (process.platform === 'win32') {
+      const script = [
+        `Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue`,
+        '  | Select-Object -ExpandProperty OwningProcess -Unique',
+        '  | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }',
+      ].join('')
+      spawnSync('powershell', ['-NoProfile', '-Command', script], { stdio: 'ignore' })
+    } else {
+      const r = spawnSync('bash', ['-c', `lsof -ti tcp:${port} || true`], { encoding: 'utf8' })
+      for (const pid of String(r.stdout || '')
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean)) {
+        spawnSync('kill', ['-9', pid], { stdio: 'ignore' })
+      }
+    }
+  } catch (e) {
+    /* 善后失败不影响结果 */
+  }
+}
+
 function latestReport() {
   if (!fs.existsSync(RESULTS_DIR)) return null
   const files = fs
@@ -421,6 +453,7 @@ async function runTests() {
     return summary
   } finally {
     killTree(server.pid)
+    freePort(DEV_PORT)
   }
 }
 

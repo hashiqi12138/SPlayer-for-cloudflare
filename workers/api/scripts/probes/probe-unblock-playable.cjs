@@ -10,7 +10,7 @@
  *
  * 用法: node scripts/probe-unblock-playable.cjs [pages-base]
  */
-const cfg = require('./config.cjs')
+const cfg = require('../config.cjs')
 
 const BASE = process.argv[2] || cfg.pagesUrl
 const ORIGIN = BASE
