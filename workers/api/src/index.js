@@ -57,16 +57,22 @@ function createExpressApp() {
     req.cookies = {};
     const cookieHeader = req.headers.cookie;
     if (cookieHeader) {
-      String(cookieHeader).split(/;\s+|(?<!\s)\s+$/g).forEach((pair) => {
+      // 必须按单个 `;` 切分：前端下发的 cookie 形如 `MUSIC_U=xxx;os=pc;`，
+      // 分号后没有空格。若按 `; ` 切分，整串会被当成一个键，
+      // MUSIC_U 的值会连上 `;os=pc;` 一起被 encodeURIComponent 编码后发给网易云，
+      // 登录态随之失效（表现为会员歌曲返回 code 404）。
+      for (const pair of String(cookieHeader).split(';')) {
         const crack = pair.indexOf('=');
-        if (crack < 1 || crack === pair.length - 1) return;
+        if (crack < 1) continue;
+        const key = pair.slice(0, crack).trim();
+        const value = pair.slice(crack + 1).trim();
+        if (!key) continue;
         try {
-          req.cookies[decodeURIComponent(pair.slice(0, crack)).trim()] = 
-            decodeURIComponent(pair.slice(crack + 1)).trim();
+          req.cookies[decodeURIComponent(key)] = decodeURIComponent(value);
         } catch (e) {
-          // ignore
+          req.cookies[key] = value;
         }
-      });
+      }
     }
     next();
   });
@@ -147,28 +153,6 @@ async function getServer() {
 }
 
 /**
- * Web ReadableStream → Node.js Readable
- */
-function webBodyToNodeStream(webBody) {
-  if (!webBody) return null;
-  const reader = webBody.getReader();
-  return new Readable({
-    async read() {
-      try {
-        const { done, value } = await reader.read();
-        if (done) {
-          this.push(null);
-        } else {
-          this.push(Buffer.from(value));
-        }
-      } catch (err) {
-        this.destroy(err);
-      }
-    }
-  });
-}
-
-/**
  * 核心适配：Web Request → Express → Web Response
  * 
  * 使用 http.IncomingMessage 和 http.ServerResponse 的标准方式
@@ -177,25 +161,35 @@ async function webRequestToExpress(request) {
   const { server } = await getServer();
   const url = new URL(request.url);
   
+  // ---- 准备请求体 ----
+  // Workers 的 http.IncomingMessage._read 只会从 this.socket 拉取数据，
+  // 而适配层把 socket 替换成了普通对象，所以传入的流不会被读取。
+  // 因此先整体读入内存，再手动 push 进 IncomingMessage，
+  // 这样 express.json() / urlencoded() 才能拿到 req.body。
+  let bodyBuffer = null;
+  if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
+    bodyBuffer = Buffer.from(await request.arrayBuffer());
+  }
+  
   return new Promise((resolve, reject) => {
     try {
-      // ---- 准备请求体 ----
-      let bodyStream = null;
-      if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
-        bodyStream = webBodyToNodeStream(request.body);
-      }
-      
       // ---- 构造 IncomingMessage ----
-      // 从可读流创建 IncomingMessage
-      const sourceStream = bodyStream || new Readable({ read() { this.push(null); } });
+      const sourceStream = new Readable({ read() { this.push(null); } });
       const req = new IncomingMessage(sourceStream);
       
       // Workers 中 IncomingMessage.socket 是只读 getter，
-      // 需要用 Object.defineProperty 覆盖，否则 ServerResponse 构造时会报错
+      // 需要用 Object.defineProperty 覆盖，否则 ServerResponse 构造时会报错。
+      // readable/read 必须存在：body-parser 通过 on-finished.isFinished() 判断
+      // 请求是否已结束，而它对 IncomingMessage 的判断是 `!socket.readable`，
+      // 缺少 readable 会让所有 POST body 被误判为"已解析"而跳过解析。
       let _socket = {
         remoteAddress: request.headers.get('cf-connecting-ip') || '127.0.0.1',
         remotePort: 0,
         encrypted: url.protocol === 'https:',
+        readable: true,
+        writable: true,
+        destroyed: false,
+        read() {},
       };
       Object.defineProperty(req, 'socket', {
         value: _socket,
@@ -308,6 +302,14 @@ async function webRequestToExpress(request) {
         if (cb) process.nextTick(cb);
         return res;
       };
+      
+      // ---- 灌入请求体并结束流 ----
+      // 必须在 emit 之前 push，数据会先进入可读缓冲，
+      // 待 body-parser 订阅 data 事件后按流式吐出。
+      if (bodyBuffer && bodyBuffer.length > 0) {
+        req.push(bodyBuffer);
+      }
+      req.push(null);
       
       // ---- 触发 Express 处理 ----
       server.emit('request', req, res);

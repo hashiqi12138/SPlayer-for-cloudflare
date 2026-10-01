@@ -261,6 +261,30 @@ function eapiResDecrypt(encryptedParams) {
   }
 }
 
+/**
+ * 解密 eapi 请求体（用于 /decrypt、/eapi/decrypt 调试接口）
+ * 明文格式: `{url}-36cd479b6b5-{json}-36cd479b6b5-{md5}`
+ */
+function eapiReqDecrypt(encryptedParams) {
+  const decryptedData = aesDecrypt(
+    encryptedParams,
+    'ecb',
+    eapiKey,
+    '',
+    'hex',
+  ).toString(CryptoJS.enc.Utf8);
+  const match = decryptedData.match(/(.*?)-36cd479b6b5-(.*?)-36cd479b6b5-(.*)/);
+  if (!match) return null;
+  const url = match[1];
+  let data;
+  try {
+    data = JSON.parse(match[2]);
+  } catch (e) {
+    data = match[2];
+  }
+  return { url, data };
+}
+
 // ============================================================
 // 导出
 // ============================================================
@@ -270,6 +294,7 @@ export default {
   linuxapi,
   eapi,
   eapiResDecrypt,
+  eapiReqDecrypt,
   aesEncrypt,
   aesDecrypt,
 };
@@ -279,6 +304,7 @@ export {
   linuxapi,
   eapi,
   eapiResDecrypt,
+  eapiReqDecrypt,
   aesEncrypt,
   aesDecrypt,
 };
