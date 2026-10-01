@@ -1,0 +1,2 @@
+# SPA 路由重定向 - 所有非静态文件请求都走 index.html
+/*    /index.html   200
