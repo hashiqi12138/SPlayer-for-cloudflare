@@ -28,6 +28,12 @@
 └─────────────────────────────────────────────────────────┘
 ```
 
+> **转发层走 Service Binding。** Pages Functions 与 Workers 共用同一个日请求额度池
+> （免费版 10 万次/天），因此 `/api/netease/*` 与 `/music/unblock/*` 这两条路由都是由
+> Pages Function 经 Service Binding 调用后端 Worker 的 —— 一次前端调用只计 1 次配额。
+> 若改回公网 `fetch()`，功能照常但用量会**静默翻倍**，10 万实际只够约 5 万次。
+> 绑定声明见 `frontend-config/pages.wrangler.toml`，由 `frontend-config/functions/**` 使用。
+
 ## 当前部署状态
 
 已完成并验证：
@@ -255,7 +261,8 @@ splayer-cloudflare/
 ├── frontend-config/
 │   ├── _redirects               # SPA 路由重定向（会被放进构建产物）
 │   ├── _headers                 # 响应头（版本戳不缓存、静态资源长缓存）
-│   └── functions/               # Pages Functions 模板，含 __API_WORKER_URL__ 占位符
+│   ├── pages.wrangler.toml      # Pages 配置模板：Service Binding 声明在这里
+│   └── functions/               # Pages Functions 模板，经绑定调用后端 Worker
 ├── workers/
 │   ├── api/                     # api-enhanced Worker 适配
 │   │   ├── src/                 # Worker 源码与 shim
@@ -314,6 +321,24 @@ splayer-cloudflare/
 | KV 存储 | 1GB | 1GB + $0.50/GB/月 |
 
 > ⚠️ **重要提示**：免费版 Workers 只有 10ms CPU 时间，网易云 API 的加密计算可能会超时。如果遇到 CPU 超时错误，需要升级到 Paid 版（$5/月），或者使用 Vercel 替代 API 部分。
+
+### 额度用尽时先分清是哪一种
+
+| 现象 | 错误码 | 含义 | 应对 |
+|---|---|---|---|
+| 到点后整站 API 挂掉 | `1027` | 账号级**日请求数**用尽（10 万次/天，UTC 零点重置） | 见下 |
+| 零散请求随机出错 | `1102` | 单次调用 **CPU 时间**超限（免费版 10 ms） | 只能升级 Paid，优化救不回来 |
+
+**请求数不够**时的顺序：本项目已经把转发层改成 Service Binding（一次调用只计 1 次，此前是 2 次），
+在这之上还可以给只读接口加边缘缓存、减少前端的冗余请求。注意 **Worker 内部的 Cache API 对「次数」没有帮助** ——
+缓存命中仍然计一次请求，它省的是 CPU。
+
+**换多个账号是行不通的**，原因有两条且各自独立成立：
+
+- 规则上，Cloudflare 自助订阅协议 2.2.1(c) 禁止「以违反或意图规避服务特定使用限制、配额的方式」使用服务。官方虽允许一个用户额外创建最多 5 个免费账号，但那是给隔离项目/团队用的，不是给同一个服务拼额度。
+- 结构上，配额是**账号级**的、无法跨账号汇总。用户打开的那个域名只能属于一个账号，所有请求都要先落到这个入口账号 —— 它仍然要为每一次调用计 1 次，天花板没变。想绕开就得让入口本身轮换（DNS 轮询或客户端故障转移），而 Workers/Pages 的自定义域名要求域名与 Worker 同账号，等于还要为每个账号各准备一个域名。
+
+官方给的两条正规路径是：升级 Workers Paid（$5/月，含 1000 万次请求/月，超出 $0.30/百万，见 <https://developers.cloudflare.com/workers/platform/pricing/>）；或用限额页上的 Limit Increase Request Form 申请调整单项限额（见 <https://developers.cloudflare.com/workers/platform/limits/>）。
 
 ## 常见问题
 

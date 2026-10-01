@@ -24,7 +24,8 @@
 #   3  参数解析         --help / 未知参数 / 非交互必填项 / 非法取值
 #   4  配置读取         get-config.mjs 与 bash 命令替换配合
 #   4b 发布分支         正式/预览分支名解析正确且互不相同（正式也要显式传 --branch）
-#   5  资源准备         prepare-pages.mjs 产物正确、无目录嵌套、无残留占位符
+#   5  资源准备         prepare-pages.mjs 产物正确、无目录嵌套、无残留占位符、
+#                        Pages 的 wrangler 配置含 Service Binding 且绑定名正确
 #   6  发布闸门         依赖校验失败时必须中止在构建/部署之前
 #   7  前置检查         缺 node / 缺 npx 时给出可操作提示，而不是误导性报错
 #   8  平台分派         deploy.mjs 的参数与用法
@@ -313,10 +314,42 @@ else
   chk $? "functions 目录已生成"
   [ ! -d "$FRONTEND/functions/functions" ]
   chk $? "没有 functions/functions 目录嵌套"
-  if grep -rq '__API_WORKER_URL__\|__PROXY_WORKER_URL__' "$FRONTEND/functions" 2>/dev/null; then
+  if grep -rqE '__[A-Z0-9_]+__' "$FRONTEND/functions" 2>/dev/null; then
     chk 1 "无残留占位符"
   else
     chk 0 "无残留占位符"
+  fi
+
+  # Pages 的 wrangler 配置：Service Binding 就声明在这里。
+  # 少了它（或少了 pages_build_output_dir），转发函数会退回走公网，
+  # 每次调用重新计两次配额 —— 功能正常，只在用量上翻倍，最难发现。
+  chk_contains "$out" 'Service Binding' "输出提到 Service Binding"
+
+  WRANGLER_TOML="$FRONTEND/wrangler.toml"
+  [ -f "$WRANGLER_TOML" ]
+  chk $? "Pages wrangler 配置已生成"
+  toml="$(cat "$WRANGLER_TOML" 2>/dev/null)"
+  chk_contains "$toml" 'pages_build_output_dir' "含 pages_build_output_dir（缺了绑定不作用于线上）"
+  chk_contains "$toml" 'binding = "API_WORKER"' "声明 API_WORKER 绑定"
+  chk_contains "$toml" 'binding = "MUSIC_PROXY"' "声明 MUSIC_PROXY 绑定"
+  chk_absent "$toml" '__' "配置无残留占位符"
+
+  # 绑定名必须与各 Worker 自己 wrangler.toml 里的 name 一致（由 prepare 派生，不该写错）
+  cat >"$TMPDIR_RUN/services.cjs" <<'EOF'
+const fs = require('fs')
+const text = fs.readFileSync(process.argv[2], 'utf8')
+const names = [...text.matchAll(/service\s*=\s*"([^"]+)"/g)].map((m) => m[1])
+process.stdout.write(names.join(','))
+EOF
+  svc="$(node "$TMPDIR_RUN/services.cjs" "$WRANGLER_TOML")"
+  chk_contains "$svc" 'ncm-api' "绑定指向 API Worker 的实际名字（$svc）"
+  chk_contains "$svc" 'music-proxy' "绑定指向代理 Worker 的实际名字（$svc）"
+
+  # 转发函数必须走绑定调用：出现全局 fetch() 就会把一次调用计成两次配额
+  if grep -rqE 'await[[:space:]]+fetch[[:space:]]*\(' "$FRONTEND/functions" 2>/dev/null; then
+    chk 1 "Functions 已无全局 fetch 调用"
+  else
+    chk 0 "Functions 已无全局 fetch 调用"
   fi
 
   out="$(cd "$REPO" && API_URL='E:/bogus/api/netease' node "$SCRIPTS/prepare-pages.mjs" 2>&1)"

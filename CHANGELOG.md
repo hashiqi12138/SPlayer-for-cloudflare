@@ -5,6 +5,40 @@
 
 发布流程见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
+## [1.0.5] - 2026-10-01
+
+### 修复
+
+- **前端每次 API 调用消耗两次 Workers 请求配额**：`/api/netease/*` 与 `/music/unblock/*`
+  的 Pages Functions 都是通过公网 `fetch()` 去请求后端 Worker 的，而 Pages Functions 的请求
+  与 Workers 请求**共用同一个日额度池**（免费版 10 万次/天，账号级），于是一次前端调用要计两次
+  —— 10 万实际只够约 5 万次调用。这是纯粹的用量问题，功能上完全看不出来。
+- 三个转发函数改走 **Service Binding**（`env.API_WORKER` / `env.MUSIC_PROXY`）。
+  按 Cloudflare 定价说明，通过 Service Binding 发起的调用不产生额外请求费用，
+  一次调用只计 1 次；顺带少一跳公网往返。
+
+### 新增
+
+- **`frontend-config/pages.wrangler.toml`**：Pages 项目的 Wrangler 配置模板，声明两个
+  Service Binding，由 `prepare-pages.mjs` 写出为 `splayer-frontend/wrangler.toml`。
+  它必须带 `pages_build_output_dir` —— 缺了它 wrangler 只把该配置当作「本地开发用」，
+  绑定不会应用到线上部署。那会是最难发现的一种形态：本地一切正常、线上仍旧计两次。
+- 绑定名从各 Worker 自己的 `wrangler.toml` 的 `name` 派生，而不是写死在模板里：
+  Service Binding 的 `service` 必须与目标 Worker 名完全一致，写死就等于把同一个名字
+  维护在两处。占位符机制相应扩展为 `config:` / `worker:` 两种取值来源。
+- `verify` 新增一项「Pages 转发走 Service Binding」：检查绑定声明是否齐全、
+  `pages_build_output_dir` 是否存在、以及转发函数里是否又出现了 `await fetch(`。
+  这三处一旦失效**都只体现在用量上、功能完全正常**，没有自检就只能靠人去数请求数。
+- 部署脚本自检同步覆盖：Pages 配置已生成、绑定名与各 Worker 的实际 name 一致、
+  Functions 中无全局 `fetch()` 调用。
+- 文档补充配额排查路径：如何区分 `1027`（请求数用尽）与 `1102`（CPU 超限），
+  以及为什么「多开账号」在规则上与结构上都不成立。
+
+### 变更
+
+- 占位符登记表由 `PLACEHOLDER_TO_CONFIG_KEY` 改为 `PLACEHOLDER_SOURCES`，
+  支持 `config:<键>` 与 `worker:<目录>` 两种取值来源。
+
 ## [1.0.4] - 2026-10-01
 
 ### 修复

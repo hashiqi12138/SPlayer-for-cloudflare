@@ -59,15 +59,27 @@ export const REQUIRED_CONFIG_KEYS = [
 export const OPTIONAL_CONFIG_KEYS = ['pagesProdUrl', 'pagesPreviewBranch', 'pagesPreviewUrl']
 
 /**
- * Pages Functions 模板里的占位符 → deploy.config.json 字段
+ * 模板占位符 → 取值来源
  *
- * 模板侧只写占位符，真实地址只在配置里维护；这张表是两者唯一的连接点。
+ * 两种来源，用前缀区分：
+ *   config:<键名>   取自 deploy.config.json
+ *   worker:<目录>   取自该 Worker 自己的 wrangler.toml 里声明的 name
+ *
+ * 为什么需要 worker: 这一种
+ * ------------------------
+ * Pages 的 Service Binding 要求 `service` 与目标 Worker 的 name **完全一致**。
+ * 把 Worker 名写进模板就等于把同一个名字维护在两处，改一处就会漂移；这里直接读
+ * Worker 自己的配置文件，做到「Worker 改名，Pages 绑定跟着改」。
+ *
  * verify 会同时检查「模板里的占位符都在表里」和「表里的占位符模板都在用」，
  * 避免任一侧单方面改动后悄悄失效。
  */
-export const PLACEHOLDER_TO_CONFIG_KEY = {
-  __API_WORKER_URL__: 'apiWorkerUrl',
-  __PROXY_WORKER_URL__: 'proxyWorkerUrl',
+export const PLACEHOLDER_SOURCES = {
+  __API_WORKER_URL__: 'config:apiWorkerUrl',
+  __PROXY_WORKER_URL__: 'config:proxyWorkerUrl',
+  __PAGES_PROJECT__: 'config:pagesProject',
+  __API_WORKER_SERVICE__: 'worker:workers/api',
+  __PROXY_WORKER_SERVICE__: 'worker:workers/music-proxy',
 }
 
 /** 匹配形如 __FOO_BAR__ 的占位符 */
@@ -94,11 +106,45 @@ export function loadConfig(file = CONFIG_FILE) {
   return cfg
 }
 
-/** 把配置解析成占位符替换表 */
+/**
+ * 读取某个 Worker 在自身 wrangler.toml 里声明的 name
+ *
+ * 只认**顶层**的 name：不带 --env 的 `wrangler deploy` 用的就是它，
+ * 而文件里往往还有一个 [env.production] name（当前两者同名，但不能依赖这一点）。
+ * 因此逐行扫到第一个 [section] 就停，避免误取到环境段里的 name。
+ */
+export function workerName(relDir) {
+  const file = path.join(ROOT, relDir, 'wrangler.toml')
+  if (!fs.existsSync(file)) {
+    throw new Error(`缺少 ${relDir}/wrangler.toml：Service Binding 需要知道 Worker 名`)
+  }
+  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    if (/^\s*\[/.test(line)) break
+    const m = /^\s*name\s*=\s*"([^"]+)"/.exec(line)
+    if (m) return m[1]
+  }
+  throw new Error(`${relDir}/wrangler.toml 顶层没有声明 name`)
+}
+
+/** 把占位符解析成替换表；取值缺失或来源不合法时抛错（由调用方决定怎么呈现） */
 export function resolveReplacements(cfg) {
   const replacements = {}
-  for (const [token, key] of Object.entries(PLACEHOLDER_TO_CONFIG_KEY)) {
-    replacements[token] = cfg[key]
+  for (const [token, source] of Object.entries(PLACEHOLDER_SOURCES)) {
+    const sep = source.indexOf(':')
+    const kind = source.slice(0, sep)
+    const arg = source.slice(sep + 1)
+
+    if (kind === 'config') {
+      const value = cfg[arg]
+      if (value === undefined || value === null) {
+        throw new Error(`deploy.config.json 缺少 ${arg}（占位符 ${token}）`)
+      }
+      replacements[token] = String(value)
+    } else if (kind === 'worker') {
+      replacements[token] = workerName(arg)
+    } else {
+      throw new Error(`占位符 ${token} 的来源写法不合法：${source}`)
+    }
   }
   return replacements
 }

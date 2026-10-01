@@ -24,7 +24,7 @@ import path from 'node:path'
 import {
   CONFIG_FILE,
   PLACEHOLDER_RE,
-  PLACEHOLDER_TO_CONFIG_KEY,
+  PLACEHOLDER_SOURCES,
   REQUIRED_CONFIG_KEYS,
   ROOT,
 } from './lib/deploy-config.mjs'
@@ -329,14 +329,17 @@ const ourSourceFiles = walk(ROOT)
 }
 
 // ------------------------------------------------------------
-// 6. 占位符与配置字段一一对应
+// 6. 占位符与登记表一一对应
 //
 // 两个方向都查：
-//   模板里出现的占位符必须在映射表里（否则部署时注入不到，线上会露出 __XXX__）
-//   映射表里的占位符必须在模板里用到（否则说明模板改了、表没跟上）
+//   模板里出现的占位符必须在登记表里（否则部署时注入不到，线上会露出 __XXX__）
+//   登记表里的占位符必须在模板里用到（否则说明模板改了、表没跟上）
+//
+// 扫描范围是整个 frontend-config/：占位符不只在 functions/ 里，
+// pages.wrangler.toml（声明 Service Binding 的那个文件）同样带占位符。
 // ------------------------------------------------------------
 {
-  const templateDir = path.join(ROOT, 'frontend-config', 'functions')
+  const templateDir = path.join(ROOT, 'frontend-config')
   const found = new Set()
   const walkTemplates = (dir) => {
     if (!fs.existsSync(dir)) return
@@ -350,16 +353,71 @@ const ourSourceFiles = walk(ROOT)
 
   const details = []
   for (const token of found) {
-    if (!PLACEHOLDER_TO_CONFIG_KEY[token]) {
+    if (!PLACEHOLDER_SOURCES[token]) {
       details.push(`模板使用了未登记的占位符 ${token}（请在 lib/deploy-config.mjs 登记）`)
     }
   }
-  for (const token of Object.keys(PLACEHOLDER_TO_CONFIG_KEY)) {
+  for (const token of Object.keys(PLACEHOLDER_SOURCES)) {
     if (!found.has(token)) {
-      details.push(`映射表里的 ${token} 在 frontend-config/functions 中已不再使用`)
+      details.push(`登记表里的 ${token} 在 frontend-config 中已不再使用`)
     }
   }
-  record(details.length === 0, `占位符与配置字段一致（模板中 ${found.size} 个）`, details)
+  record(details.length === 0, `占位符与登记表一致（模板中 ${found.size} 个）`, details)
+}
+
+// ------------------------------------------------------------
+// 6b. Pages 必须走 Service Binding，而不是公网 fetch
+//
+// 这条守着的是一个**只在配额上体现**的问题：Pages Functions 与 Workers 共用同一个
+// 日请求额度池（免费版 10 万次/天），转发函数若用全局 fetch() 调 Worker，
+// 每次前端调用要计两次，等于把可用次数砍半。它不影响功能，只在用量上翻倍，
+// 因此线上跑起来完全看不出异常 —— 必须由自检固定住。
+//
+// 两个必要条件缺一不可：
+//   1. frontend-config/pages.wrangler.toml 里声明了绑定
+//   2. 转发函数确实用 env.<BINDING>.fetch() 调用
+// 另外该配置必须带 pages_build_output_dir：缺了它 wrangler 只当本地开发用，
+// 绑定不会应用到线上（本地正常、线上仍计两次，最难发现的一种）。
+// ------------------------------------------------------------
+{
+  const details = []
+  const pagesConfig = path.join(ROOT, 'frontend-config', 'pages.wrangler.toml')
+
+  if (!fs.existsSync(pagesConfig)) {
+    details.push('缺少 frontend-config/pages.wrangler.toml：Service Binding 声明无处安放')
+  } else {
+    const text = fs.readFileSync(pagesConfig, 'utf8')
+    for (const binding of ['API_WORKER', 'MUSIC_PROXY']) {
+      if (!new RegExp(`^\\s*binding\\s*=\\s*"${binding}"`, 'm').test(text)) {
+        details.push(`pages.wrangler.toml 未声明 ${binding} 绑定`)
+      }
+    }
+    if (!/^\s*pages_build_output_dir\s*=/m.test(text)) {
+      details.push(
+        'pages.wrangler.toml 缺少 pages_build_output_dir：缺了它 wrangler 只把它当本地开发配置，绑定不会应用到线上部署',
+      )
+    }
+  }
+
+  const fnDir = path.join(ROOT, 'frontend-config', 'functions')
+  const walkJs = (dir, acc = []) => {
+    if (!fs.existsSync(dir)) return acc
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name)
+      if (entry.isDirectory()) walkJs(p, acc)
+      else if (entry.name.endsWith('.js')) acc.push(p)
+    }
+    return acc
+  }
+  for (const file of walkJs(fnDir)) {
+    if (/await\s+fetch\s*\(/.test(fs.readFileSync(file, 'utf8'))) {
+      details.push(
+        `${path.relative(ROOT, file)} 仍在用全局 fetch() 调用后端：会把一次调用计成两次配额`,
+      )
+    }
+  }
+
+  record(details.length === 0, 'Pages 转发走 Service Binding（不重复计配额）', details)
 }
 
 // ------------------------------------------------------------

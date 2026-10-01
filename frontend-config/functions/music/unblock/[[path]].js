@@ -2,21 +2,21 @@
  * Pages Functions: /music/unblock/*
  *
  * 将前端的 /music/unblock/xxx 请求转发到音乐代理 Worker
- * 也可以直接用 Cloudflare Workers Route 配置
  *
- * 使用方式：
- * 1. 将此文件复制到 SPlayer 项目的 functions/music/unblock/[[path]].js
- * 2. 修改 PROXY_WORKER_URL 为你的音乐代理 Worker 地址
- * 3. 部署到 Pages
+ * 走 Service Binding（env.MUSIC_PROXY）而不是公网 fetch()
+ * -----------------------------------------------------
+ * 与 api/netease 同理：公网 fetch() 会让一次调用同时消耗本函数与目标 Worker
+ * 两次配额。音频这条路径的调用量不小（播放、拖动进度条、切歌都会触发），
+ * 所以同样必须走绑定。绑定在 frontend-config/pages.wrangler.toml 里声明。
  */
 
 // ====== 配置区 ======
 // 音乐代理 Worker 地址（音频 CDN 代理，解决 CORS / Range 请求）。
-// 占位符由 scripts/deploy-pages.ps1 按 deploy.config.json 替换。
+// 占位符由 scripts/prepare-pages.mjs 按 deploy.config.json 替换。
 const PROXY_WORKER_URL = '__PROXY_WORKER_URL__'
 
 export async function onRequest(context) {
-  const { request, params } = context
+  const { request, env, params } = context
   const url = new URL(request.url)
 
   const path = Array.isArray(params.path) ? params.path.join('/') : params.path
@@ -26,6 +26,7 @@ export async function onRequest(context) {
       JSON.stringify({
         status: 'ok',
         service: 'music-proxy-pages-function',
+        via: 'service-binding:MUSIC_PROXY',
       }),
       {
         headers: { 'Content-Type': 'application/json' },
@@ -41,8 +42,8 @@ export async function onRequest(context) {
   newHeaders.delete('host')
 
   try {
-    // 流式转发（支持 Range 请求）
-    const response = await fetch(targetUrl, {
+    // 流式转发（支持 Range 请求，走 Service Binding 不额外计入请求配额）
+    const response = await env.MUSIC_PROXY.fetch(targetUrl, {
       method: request.method,
       headers: newHeaders,
       body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,

@@ -1,0 +1,39 @@
+# Cloudflare Pages 项目配置（模板）
+#
+# 由 scripts/prepare-pages.mjs 复制为 splayer-frontend/wrangler.toml，
+# 并把下面三个占位符替换成真实值：
+#   __PAGES_PROJECT__         -> deploy.config.json 的 pagesProject
+#   __API_WORKER_SERVICE__    -> workers/api/wrangler.toml 里的 name
+#   __PROXY_WORKER_SERVICE__  -> workers/music-proxy/wrangler.toml 里的 name
+# 后两个刻意从各自的 Worker 配置派生，而不是写死在这里：Service Binding 的
+# service 必须与目标 Worker 的 name 完全一致，写死就等于把同一个名字维护在两处。
+#
+# 为什么需要 Service Binding
+# -------------------------
+# pages functions 里的转发函数原本走公网 fetch() 调用 Worker。那样一次前端调用要消耗
+# **两次** Workers 请求配额：Pages Functions 请求 1 次 + 目标 Worker 请求 1 次。
+# 而免费版是账号级共享 10 万次/天（Pages Functions 与 Workers 同一个池），
+# 于是 10 万实际只够约 5 万次调用。
+#
+# 改用 Service Binding 后，Functions 直接调用 Worker、不经过公网：按 Cloudflare
+# 定价说明，通过 Service Binding 发起的调用不产生额外请求费用，一次调用只计 1 次。
+#
+# 两个必须遵守的约束
+# -----------------
+# 1. 必须保留 pages_build_output_dir。缺了它 wrangler 只会把本文件当作「本地开发用」，
+#    bindings 不会被应用到线上部署 —— 那正是最坏的结果：本地一切正常、线上仍是 2 次。
+# 2. 本文件一旦生效即成为该 Pages 项目的**配置事实来源**，同名配置项不能再在控制台修改。
+#
+# compatibility_date 与原项目设置保持一致，改动它会同时改变 Workers 运行时行为。
+
+name = "__PAGES_PROJECT__"
+pages_build_output_dir = "out/renderer"
+compatibility_date = "2026-09-30"
+
+[[services]]
+binding = "API_WORKER"
+service = "__API_WORKER_SERVICE__"
+
+[[services]]
+binding = "MUSIC_PROXY"
+service = "__PROXY_WORKER_SERVICE__"

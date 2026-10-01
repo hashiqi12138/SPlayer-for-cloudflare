@@ -7,10 +7,10 @@
 
 | 组件 | 位置 | 说明 |
 |---|---|---|
-| 前端 | `splayer-frontend/` → Cloudflare Pages | SPlayer Web 版；`functions/` 为 Pages Functions 转发层 |
+| 前端 | `splayer-frontend/` → Cloudflare Pages | SPlayer Web 版；`functions/` 为 Pages Functions 转发层，经 **Service Binding** 调用后端 Worker |
 | API Worker | `workers/api/` | api-enhanced 的 Workers 适配版，429 个接口 |
 | 音频代理 Worker | `workers/music-proxy/` | 音频 CDN 代理，解决 CORS / Range 请求 |
-| Pages 配置源 | `frontend-config/` | `functions/` 与 `_redirects` 的事实来源，由部署脚本同步 |
+| Pages 配置源 | `frontend-config/` | `functions/`、`pages.wrangler.toml`（Service Binding）与 `_redirects` 的事实来源，由部署脚本同步 |
 
 线上地址：
 
@@ -133,6 +133,21 @@ npm run test:api http://127.0.0.1:8788
 
 `workers/api/.dev.vars`（已 gitignore）用于本地环境变量覆盖，例如 `ENABLE_UNBLOCK=true`。
 
+## 请求配额与 Service Binding
+
+Cloudflare 免费版的 **Workers 与 Pages Functions 共用同一个日额度池**（10 万次/天，账号级）。因此前端每发一次 API 调用，如果转发层用公网 `fetch()` 去请求 Worker，就要计**两次**：Pages Function 1 次 + 目标 Worker 1 次 —— 10 万实际只够约 5 万次调用。
+
+本项目的转发函数因此走 **Service Binding**（`env.API_WORKER` / `env.MUSIC_PROXY`），绑定声明在 `frontend-config/pages.wrangler.toml`：
+
+- 绑定调用不经过公网，按 Cloudflare 说明不产生额外请求费用 → 一次调用只计 1 次
+- 顺带少一跳公网往返
+- 绑定名从各 Worker 自己的 `wrangler.toml` 的 `name` 派生，改 Worker 名不用同步改两处
+
+有两个约束由 `npm run verify` 固定住，因为它们的失效**只体现在用量上、功能完全正常**：
+
+1. `pages.wrangler.toml` 必须带 `pages_build_output_dir` —— 缺了它 wrangler 只把该配置当「本地开发用」，绑定不会应用到线上部署
+2. 转发函数里不得再出现 `await fetch(` —— 一旦有人改回公网调用，调用量会静默翻倍
+
 ## 部署
 
 ```bash
@@ -208,7 +223,7 @@ DEPLOY_SHELL=bash node scripts/deploy.mjs pages   # 在 Windows 上强制走 bas
 |---|---|
 | `scripts/deploy-*.ps1` / `scripts/deploy-*.sh` | 各平台的部署流程（前置检查 → 闸门 → 构建 → 部署） |
 | `scripts/lib/common.sh` | bash 侧公共库：日志、前置检查、交互、路径转换防护 |
-| `scripts/prepare-pages.mjs` | **两套脚本共用**：读配置、同步 `functions/` 并注入地址、同步 `_redirects`、写 `.env` |
+| `scripts/prepare-pages.mjs` | **两套脚本共用**：读配置、同步 `functions/` 并注入地址、写出 `wrangler.toml`（Service Binding）、写 `.env` |
 | `scripts/deps.mjs` | 依赖 pin + 补丁 + 单测的发布闸门 |
 | `scripts/get-config.mjs` | 供 bash 读取 `deploy.config.json` 的单个键 |
 | `scripts/lib/git-meta.mjs` + `scripts/git-meta.mjs` | **两套脚本与 `finalize-dist.mjs` 共用**：提交号 / 工作区是否真的脏 |

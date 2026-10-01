@@ -6,14 +6,17 @@
  * 路径处理说明：Worker 侧的路由本身就叫 `/api/unblock/xxx`
  * （见 workers/api/src/unblock/index.js），因此这里保留完整路径转发，
  * 不做前缀剥离。
+ *
+ * 走 Service Binding（env.API_WORKER）而不是公网 fetch()：见同目录下
+ * api/netease/[[path]].js 的说明 —— 全局 fetch() 会让一次调用计两次配额。
  */
 
-// API Worker 地址。占位符由 scripts/deploy-pages.ps1 按 deploy.config.json
+// API Worker 地址。占位符由 scripts/prepare-pages.mjs 按 deploy.config.json
 // 在同步到 splayer-frontend/functions 时替换，请勿直接改成真实地址。
 const API_WORKER_URL = '__API_WORKER_URL__'
 
 export async function onRequest(context) {
-  const { request, params } = context
+  const { request, env, params } = context
   const url = new URL(request.url)
 
   // [[path]] 可能是数组（多段路径）或单段
@@ -30,7 +33,7 @@ export async function onRequest(context) {
   }
 
   try {
-    const response = await fetch(`${API_WORKER_URL}${targetPath}${url.search}`, {
+    const response = await env.API_WORKER.fetch(`${API_WORKER_URL}${targetPath}${url.search}`, {
       method: request.method,
       headers: newHeaders,
       body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,
