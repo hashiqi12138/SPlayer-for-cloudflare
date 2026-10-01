@@ -15,7 +15,7 @@
 */
 
 const Long = (n) => {
-  const bN = BigInt(n);
+  const bN = BigInt(n)
 
   return {
     low: Number(bN),
@@ -30,15 +30,15 @@ const Long = (n) => {
     multiply: (x) => Long(bN * BigInt(x)),
     shiftLeft: (x) => Long(bN << BigInt(x)),
     shiftRight: (x) => Long(bN >> BigInt(x)),
-  };
-};
+  }
+}
 
-const range = (n) => Array.from(new Array(n).keys());
+const range = (n) => Array.from(new Array(n).keys())
 const power = (base, index) =>
   Array(index)
     .fill(null)
-    .reduce((result) => result.multiply(base), Long(1));
-const LongArray = (...array) => array.map((n) => (n === -1 ? Long(-1, -1) : Long(n)));
+    .reduce((result) => result.multiply(base), Long(1))
+const LongArray = (...array) => array.map((n) => (n === -1 ? Long(-1, -1) : Long(n)))
 
 // EXPANSION
 const arrayE = LongArray(
@@ -106,7 +106,7 @@ const arrayE = LongArray(
   30,
   -1,
   -1,
-);
+)
 
 // INITIAL_PERMUTATION
 const arrayIP = LongArray(
@@ -174,7 +174,7 @@ const arrayIP = LongArray(
   22,
   14,
   6,
-);
+)
 
 // INVERSE_PERMUTATION
 const arrayIP_1 = LongArray(
@@ -242,13 +242,13 @@ const arrayIP_1 = LongArray(
   16,
   56,
   24,
-);
+)
 
 // ROTATES
-const arrayLs = [1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1];
-const arrayLsMask = LongArray(0, 0x100001, 0x300003);
-const arrayMask = range(64).map((n) => power(2, n));
-arrayMask[arrayMask.length - 1] = arrayMask[arrayMask.length - 1].multiply(-1);
+const arrayLs = [1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1]
+const arrayLsMask = LongArray(0, 0x100001, 0x300003)
+const arrayMask = range(64).map((n) => power(2, n))
+arrayMask[arrayMask.length - 1] = arrayMask[arrayMask.length - 1].multiply(-1)
 
 // PERMUTATION
 const arrayP = LongArray(
@@ -284,7 +284,7 @@ const arrayP = LongArray(
   10,
   3,
   24,
-);
+)
 
 // PERMUTED_CHOICE1
 const arrayPC_1 = LongArray(
@@ -344,7 +344,7 @@ const arrayPC_1 = LongArray(
   19,
   11,
   3,
-);
+)
 
 // PERMUTED_CHOICE2
 const arrayPC_2 = LongArray(
@@ -412,7 +412,7 @@ const arrayPC_2 = LongArray(
   31,
   -1,
   -1,
-);
+)
 
 const matrixNSBox = [
   [
@@ -455,129 +455,129 @@ const matrixNSBox = [
     1, 2, 7, 8, 1, 2, 12, 15, 10, 4, 0, 3, 13, 14, 6, 9, 7, 8, 9, 6, 15, 1, 5, 12, 3, 10, 14, 5, 8,
     7, 11, 0, 4, 13, 2, 11,
   ],
-];
+]
 
 const bitTransform = (arrInt, n, l) => {
   // int[], int, long : long
-  let l2 = Long(0);
+  let l2 = Long(0)
   range(n).forEach((i) => {
-    if (arrInt[i].isNegative() || l.and(arrayMask[arrInt[i].low]).equals(0)) return;
-    l2 = l2.or(arrayMask[i]);
-  });
-  return l2;
-};
+    if (arrInt[i].isNegative() || l.and(arrayMask[arrInt[i].low]).equals(0)) return
+    l2 = l2.or(arrayMask[i])
+  })
+  return l2
+}
 
 const DES64 = (longs, l) => {
-  const pR = range(8).map(() => Long(0));
-  const pSource = [Long(0), Long(0)];
-  let L = Long(0);
-  let R = Long(0);
-  let out = bitTransform(arrayIP, 64, l);
-  pSource[0] = out.and(0xffffffff);
-  pSource[1] = out.and(-4294967296).shiftRight(32);
+  const pR = range(8).map(() => Long(0))
+  const pSource = [Long(0), Long(0)]
+  let L = Long(0)
+  let R = Long(0)
+  let out = bitTransform(arrayIP, 64, l)
+  pSource[0] = out.and(0xffffffff)
+  pSource[1] = out.and(-4294967296).shiftRight(32)
 
   range(16).forEach((i) => {
-    let SOut = Long(0);
+    let SOut = Long(0)
 
-    R = Long(pSource[1]);
-    R = bitTransform(arrayE, 64, R);
-    R = R.xor(longs[i]);
+    R = Long(pSource[1])
+    R = bitTransform(arrayE, 64, R)
+    R = R.xor(longs[i])
     range(8).forEach((j) => {
-      pR[j] = R.shiftRight(j * 8).and(255);
-    });
+      pR[j] = R.shiftRight(j * 8).and(255)
+    })
     range(8)
       .reverse()
       .forEach((sbi) => {
-        SOut = SOut.shiftLeft(4).or(matrixNSBox[sbi][pR[sbi]]);
-      });
-    R = bitTransform(arrayP, 32, SOut);
-    L = Long(pSource[0]);
-    pSource[0] = Long(pSource[1]);
-    pSource[1] = L.xor(R);
-  });
-  pSource.reverse();
-  out = pSource[1].shiftLeft(32).and(-4294967296).or(pSource[0].and(0xffffffff));
-  out = bitTransform(arrayIP_1, 64, out);
-  return out;
-};
+        SOut = SOut.shiftLeft(4).or(matrixNSBox[sbi][pR[sbi]])
+      })
+    R = bitTransform(arrayP, 32, SOut)
+    L = Long(pSource[0])
+    pSource[0] = Long(pSource[1])
+    pSource[1] = L.xor(R)
+  })
+  pSource.reverse()
+  out = pSource[1].shiftLeft(32).and(-4294967296).or(pSource[0].and(0xffffffff))
+  out = bitTransform(arrayIP_1, 64, out)
+  return out
+}
 
 const subKeys = (l, longs, n) => {
   // long, long[], int
-  let l2 = bitTransform(arrayPC_1, 56, l);
+  let l2 = bitTransform(arrayPC_1, 56, l)
   range(16).forEach((i) => {
     l2 = l2
       .and(arrayLsMask[arrayLs[i]])
       .shiftLeft(28 - arrayLs[i])
-      .or(l2.and(arrayLsMask[arrayLs[i]].not()).shiftRight(arrayLs[i]));
-    longs[i] = bitTransform(arrayPC_2, 64, l2);
-  });
+      .or(l2.and(arrayLsMask[arrayLs[i]].not()).shiftRight(arrayLs[i]))
+    longs[i] = bitTransform(arrayPC_2, 64, l2)
+  })
   if (n === 1) {
     range(8).forEach((j) => {
-      [longs[j], longs[15 - j]] = [longs[15 - j], longs[j]];
-    });
+      ;[longs[j], longs[15 - j]] = [longs[15 - j], longs[j]]
+    })
   }
-};
+}
 
 const crypt = (msg, key, mode) => {
   // 处理密钥块
-  let l = Long(0);
+  let l = Long(0)
   range(8).forEach((i) => {
     l = Long(key[i])
       .shiftLeft(i * 8)
-      .or(l);
-  });
+      .or(l)
+  })
 
-  const j = Math.floor(msg.length / 8);
+  const j = Math.floor(msg.length / 8)
   // arrLong1 存放的是转换后的密钥块, 在解密时只需要把这个密钥块反转就行了
 
-  const arrLong1 = range(16).map(() => Long(0));
-  subKeys(l, arrLong1, mode);
+  const arrLong1 = range(16).map(() => Long(0))
+  subKeys(l, arrLong1, mode)
 
   // arrLong2 存放的是前部分的明文
-  const arrLong2 = range(j).map(() => Long(0));
+  const arrLong2 = range(j).map(() => Long(0))
 
   range(j).forEach((m) => {
     range(8).forEach((n) => {
       arrLong2[m] = Long(msg[n + m * 8])
         .shiftLeft(n * 8)
-        .or(arrLong2[m]);
-    });
-  });
+        .or(arrLong2[m])
+    })
+  })
 
   // 用于存放密文
-  const arrLong3 = range(Math.floor((1 + 8 * (j + 1)) / 8)).map(() => Long(0));
+  const arrLong3 = range(Math.floor((1 + 8 * (j + 1)) / 8)).map(() => Long(0))
 
   // 计算前部的数据块(除了最后一部分)
   range(j).forEach((i1) => {
-    arrLong3[i1] = DES64(arrLong1, arrLong2[i1]);
-  });
+    arrLong3[i1] = DES64(arrLong1, arrLong2[i1])
+  })
 
   // 保存多出来的字节
-  const arrByte1 = msg.slice(j * 8);
-  let l2 = Long(0);
+  const arrByte1 = msg.slice(j * 8)
+  let l2 = Long(0)
 
   range(msg.length % 8).forEach((i1) => {
     l2 = Long(arrByte1[i1])
       .shiftLeft(i1 * 8)
-      .or(l2);
-  });
+      .or(l2)
+  })
 
   // 计算多出的那一位(最后一位)
-  if (arrByte1.length || mode === 0) arrLong3[j] = DES64(arrLong1, l2); // 解密不需要
+  if (arrByte1.length || mode === 0) arrLong3[j] = DES64(arrLong1, l2) // 解密不需要
 
   // 将密文转为字节型
-  const arrByte2 = range(8 * arrLong3.length).map(() => 0);
-  let i4 = 0;
+  const arrByte2 = range(8 * arrLong3.length).map(() => 0)
+  let i4 = 0
   arrLong3.forEach((l3) => {
     range(8).forEach((i6) => {
-      arrByte2[i4] = l3.shiftRight(i6 * 8).and(255).low;
-      i4 += 1;
-    });
-  });
-  return Buffer.from(arrByte2);
-};
+      arrByte2[i4] = l3.shiftRight(i6 * 8).and(255).low
+      i4 += 1
+    })
+  })
+  return Buffer.from(arrByte2)
+}
 
-const SECRET_KEY = Buffer.from("ylzsxkwm");
-export const encrypt = (msg) => crypt(msg, SECRET_KEY, 0);
-export const decrypt = (msg) => crypt(msg, SECRET_KEY, 1);
-export const encryptQuery = (query) => encrypt(Buffer.from(query)).toString("base64");
+const SECRET_KEY = Buffer.from('ylzsxkwm')
+export const encrypt = (msg) => crypt(msg, SECRET_KEY, 0)
+export const decrypt = (msg) => crypt(msg, SECRET_KEY, 1)
+export const encryptQuery = (query) => encrypt(Buffer.from(query)).toString('base64')

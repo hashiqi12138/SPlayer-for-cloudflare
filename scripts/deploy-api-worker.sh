@@ -32,6 +32,7 @@ banner "部署 api-enhanced Worker"
 # 「依赖校验失败」这种误导性的结论。
 # ------------------------------------------------------------
 check_node
+ensure_local_deps
 require_dir "$API_WORKER_DIR/ncm-source" 'workers/api/ncm-source'
 verify_deps
 check_wrangler
@@ -56,7 +57,7 @@ echo
 # ------------------------------------------------------------
 if confirm "是否先本地测试？(y/N)" n; then
   log_step "启动本地开发服务器 (Ctrl+C 停止)"
-  npx wrangler dev
+  npx --no-install wrangler dev
   echo
 fi
 
@@ -64,7 +65,7 @@ fi
 # 部署
 # ------------------------------------------------------------
 log_step "开始部署"
-npx wrangler deploy
+npx --no-install wrangler deploy
 
 echo
 banner "API Worker 部署完成"

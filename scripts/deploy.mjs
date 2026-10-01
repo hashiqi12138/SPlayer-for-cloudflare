@@ -18,59 +18,59 @@
  *   DEPLOY_SHELL=ps1|bash   强制指定实现（例如 Windows 上想用 Git Bash / MSYS2 跑 bash 版）
  */
 
-import { spawnSync } from 'node:child_process';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, '..');
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const ROOT = path.resolve(__dirname, '..')
 
 const TARGETS = {
   pages: 'deploy-pages',
   api: 'deploy-api-worker',
   proxy: 'deploy-proxy-worker',
   all: 'deploy-all',
-};
-
-const [, , target, ...rest] = process.argv;
-if (!target || !TARGETS[target]) {
-  console.error(`用法: node scripts/deploy.mjs <${Object.keys(TARGETS).join('|')}> [参数...]`);
-  process.exit(2);
 }
 
-const base = TARGETS[target];
+const [, , target, ...rest] = process.argv
+if (!target || !TARGETS[target]) {
+  console.error(`用法: node scripts/deploy.mjs <${Object.keys(TARGETS).join('|')}> [参数...]`)
+  process.exit(2)
+}
+
+const base = TARGETS[target]
 
 // 选择实现：显式配置优先，否则按平台
-let shell = (process.env.DEPLOY_SHELL || '').toLowerCase();
+let shell = (process.env.DEPLOY_SHELL || '').toLowerCase()
 if (shell !== 'ps1' && shell !== 'bash') {
-  shell = process.platform === 'win32' ? 'ps1' : 'bash';
+  shell = process.platform === 'win32' ? 'ps1' : 'bash'
 }
 
-let cmd;
-let args;
+let cmd
+let args
 if (shell === 'ps1') {
-  const script = path.join(__dirname, `${base}.ps1`);
+  const script = path.join(__dirname, `${base}.ps1`)
   // 统一转成 PowerShell 的参数写法：--non-interactive / -y -> -NonInteractive
   const psArgs = rest.map((a) =>
     a === '--non-interactive' || a === '-y' || a === '--yes' ? '-NonInteractive' : a,
-  );
-  cmd = 'powershell';
-  args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, ...psArgs];
+  )
+  cmd = 'powershell'
+  args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, ...psArgs]
 } else {
-  const script = path.join(__dirname, `${base}.sh`);
-  cmd = 'bash';
-  args = [script, ...rest];
+  const script = path.join(__dirname, `${base}.sh`)
+  cmd = 'bash'
+  args = [script, ...rest]
 }
 
-console.log(`  [i]  运行: ${shell === 'ps1' ? base + '.ps1' : 'bash ' + base + '.sh'}`);
-const r = spawnSync(cmd, args, { cwd: ROOT, stdio: 'inherit' });
+console.log(`  [i]  运行: ${shell === 'ps1' ? base + '.ps1' : 'bash ' + base + '.sh'}`)
+const r = spawnSync(cmd, args, { cwd: ROOT, stdio: 'inherit' })
 if (r.error) {
   console.error(
     `  [x]  无法启动 ${cmd}：${r.error.message}\n` +
       (shell === 'bash'
         ? '       请确认已安装 bash（Windows 可用 Git Bash / MSYS2 / WSL）'
         : '       请确认已安装 PowerShell'),
-  );
-  process.exit(1);
+  )
+  process.exit(1)
 }
-process.exit(r.status ?? 1);
+process.exit(r.status ?? 1)

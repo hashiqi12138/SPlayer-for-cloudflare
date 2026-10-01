@@ -1,0 +1,34 @@
+# Prettier 忽略范围
+#
+# 这份配置刻意**不覆盖全仓库**，原因如下（都是「格式化了反而更糟」的情形）：
+
+# 1. 上游 submodule：内容归属各自的仓库与各自的格式化配置，本仓库无权改写。
+#    对它们跑 prettier 只会让子模块工作区变脏，干扰「补丁是否已应用」的判断。
+splayer-frontend/
+workers/api/ncm-source/
+
+# 2. 生成物：由 scripts/deps.mjs / build-modules.cjs 产出，格式化会被下次构建覆盖，
+#    而且 CI 会比对它与重建结果是否一致 —— 手改格式会让「可复现」校验失败。
+workers/api/src/generated-routes.js
+workers/api/test-results/
+
+# 3. 补丁文件：必须与 git diff 输出逐字节一致，格式化后 git apply 的上下文会失配。
+patches/
+
+# 4. 第三方许可证全文：AGPL-3.0 官方文本，一个字符都不该动。
+LICENSE
+
+# 5. 构建与本地状态
+node_modules/
+out/
+dist/
+.wrangler/
+.dev.vars
+*.log
+
+# 6. Markdown
+#
+# prettier 会按「字符数」对齐表格单元格。中文一个字占两格宽，按字符数补空格的结果是
+# 源码里看着整齐、渲染出来依然错位，而且每次改一个词都会让整张表的空格全部重排 ——
+# 既没换来可读性，又制造了大量无意义 diff。文档的可读性交给作者的换行控制。
+*.md

@@ -18,6 +18,15 @@ Write-Host ""
 Write-Host "📋 前置检查" -ForegroundColor Yellow
 Write-Host "──────────────────────" -ForegroundColor Gray
 
+# 部署必须使用 package-lock.json 锁定的 wrangler。若允许 npx 自行下载，
+# 同一个提交在不同时间、不同机器上可能用不同版本的 wrangler 部署，
+# 「固定版本可复现」就只覆盖了源码、没覆盖工具链。
+if (-not (Test-Path (Join-Path $ProjectRoot "node_modules"))) {
+    Write-Host "   ❌ 根目录依赖未安装，无法保证 wrangler 版本与锁文件一致" -ForegroundColor Red
+    Write-Host "      请先执行: npm ci" -ForegroundColor Yellow
+    exit 1
+}
+
 # Node.js
 try {
     $nodeVer = & node --version
@@ -38,7 +47,7 @@ try {
 
 # wrangler
 try {
-    $wranglerVer = & npx wrangler --version 2>&1
+    $wranglerVer = & npx --no-install wrangler --version 2>&1
     Write-Host "   ✅ wrangler: $wranglerVer" -ForegroundColor Green
 } catch {
     Write-Host "   ⚠️  wrangler 将自动安装" -ForegroundColor Yellow
@@ -51,11 +60,11 @@ Write-Host ""
 Write-Host "🔐 Cloudflare 登录" -ForegroundColor Yellow
 Write-Host "──────────────────────" -ForegroundColor Gray
 
-$loginResult = & npx wrangler whoami 2>&1
+$loginResult = & npx --no-install wrangler whoami 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "   未登录，即将打开浏览器登录..." -ForegroundColor Yellow
     Write-Host ""
-    & npx wrangler login
+    & npx --no-install wrangler login
     if ($LASTEXITCODE -ne 0) {
         Write-Host "   ❌ 登录失败" -ForegroundColor Red
         exit 1

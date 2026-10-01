@@ -18,6 +18,7 @@ parse_common_args "$@"
 banner "部署音乐代理 Worker"
 
 check_node
+ensure_local_deps
 require_dir "$PROXY_WORKER_DIR" 'workers/music-proxy'
 check_wrangler
 # 未登录时允许自动拉起 wrangler login（这是首次部署最省事的一条路径）
@@ -26,7 +27,7 @@ echo
 
 log_step "开始部署"
 cd "$PROXY_WORKER_DIR"
-npx wrangler deploy
+npx --no-install wrangler deploy
 
 echo
 banner "音乐代理 Worker 部署完成"

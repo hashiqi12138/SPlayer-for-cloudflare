@@ -3,18 +3,23 @@
   "version": "1.0.0",
   "private": true,
   "description": "SPlayer + api-enhanced 全 Cloudflare 部署方案",
+  "license": "AGPL-3.0-or-later",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "scripts": {
     "login": "npx wrangler login",
+    "verify": "node scripts/verify.mjs",
+    "test": "node --test workers/api/test/",
+    "test:api": "node workers/api/scripts/test-api.cjs",
+    "test:scripts": "bash scripts/tests/deploy-scripts.test.sh",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "deps:status": "node scripts/deps.mjs status",
     "deps:setup": "node scripts/deps.mjs setup",
     "deps:apply": "node scripts/deps.mjs apply",
     "deps:update": "node scripts/deps.mjs update",
     "build:api": "node workers/api/scripts/build-modules.cjs",
-    "test:api": "node workers/api/scripts/test-api.cjs",
-    "test:scripts": "bash scripts/tests/deploy-scripts.test.sh",
     "dev:proxy": "cd workers/music-proxy && npx wrangler dev",
     "dev:api": "cd workers/api && npx wrangler dev",
     "deploy:proxy": "node scripts/deploy.mjs proxy",
@@ -24,9 +29,11 @@
     "deploy:proxy:bash": "bash scripts/deploy-proxy-worker.sh",
     "deploy:api:bash": "bash scripts/deploy-api-worker.sh",
     "deploy:pages:bash": "bash scripts/deploy-pages.sh",
-    "deploy:all:bash": "bash scripts/deploy-all.sh"
+    "deploy:all:bash": "bash scripts/deploy-all.sh",
+    "hooks:install": "node scripts/install-hooks.mjs"
   },
   "devDependencies": {
+    "prettier": "^3.3.3",
     "wrangler": "^4.144.0"
   }
 }

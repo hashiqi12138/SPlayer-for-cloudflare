@@ -281,7 +281,13 @@ EOF
   if is_msys; then
     echo "=== 9. MSYS2 / Git Bash 路径转换防护 ==="
     mangled="$(API_URL=/api/netease node -e 'process.stdout.write(String(process.env.API_URL))')"
-    chk_contains "$mangled" 'E:/' "对照组：裸调用确实会被改写（$mangled）"
+    # 不硬编码盘符：MSYS2 装在哪盘、Git for Windows 装在 C:\Program Files\Git，
+    # 改写后的前缀各不相同，唯一可靠的特征是「值被改掉了」。
+    if [ "$mangled" != "/api/netease" ]; then
+      chk 0 "对照组：裸调用确实被路径转换改写（$mangled）"
+    else
+      chk 1 "对照组：裸调用本应被改写，但取到的仍是 $mangled"
+    fi
 
     out="$(cd "$REPO" && . "$SCRIPTS/lib/common.sh" >/dev/null 2>&1; API_URL=/api/netease node "$SCRIPTS/prepare-pages.mjs" 2>&1)"
     chk_contains "$out" 'VITE_API_URL=/api/netease' "载入 common.sh 后地址未被改写"

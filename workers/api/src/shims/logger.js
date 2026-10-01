@@ -11,6 +11,6 @@ const logger = {
   error: (msg, ...args) => console.error('[ERROR]', msg, ...args),
   success: (msg, ...args) => console.log('[SUCCESS]', msg, ...args),
   critical: (msg, ...args) => console.error('[CRITICAL]', msg, ...args),
-};
+}
 
-export default logger;
+export default logger

@@ -7,9 +7,9 @@
  */
 
 const DEFAULT_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
-const DEFAULT_TIMEOUT = 20000;
+const DEFAULT_TIMEOUT = 20000
 
 /**
  * 发起 GET 并返回文本
@@ -17,18 +17,18 @@ const DEFAULT_TIMEOUT = 20000;
  * @param {{headers?: object, timeout?: number}} [options]
  */
 export async function getText(url, options = {}) {
-  const { headers = {}, timeout = DEFAULT_TIMEOUT } = options;
+  const { headers = {}, timeout = DEFAULT_TIMEOUT } = options
   const res = await fetch(url, {
     headers: { 'User-Agent': DEFAULT_UA, ...headers },
     signal: AbortSignal.timeout(timeout),
-  });
+  })
   if (!res.ok) {
-    const err = new Error(`HTTP ${res.status} for ${url}`);
+    const err = new Error(`HTTP ${res.status} for ${url}`)
     // 保留状态码，便于上层区分「源站封禁出口 IP」与「普通网络故障」
-    err.status = res.status;
-    throw err;
+    err.status = res.status
+    throw err
   }
-  return await res.text();
+  return await res.text()
 }
 
 /**
@@ -39,28 +39,26 @@ export async function getText(url, options = {}) {
  * 只报其中一个会掩盖真实原因，排查困难。
  */
 export async function getTextAny(httpsUrl, options = {}) {
-  const httpUrl = httpsUrl.replace(/^https:/, 'http:');
+  const httpUrl = httpsUrl.replace(/^https:/, 'http:')
 
   try {
-    return await getText(httpsUrl, options);
+    return await getText(httpsUrl, options)
   } catch (errHttps) {
-    if (httpUrl === httpsUrl) throw errHttps;
+    if (httpUrl === httpsUrl) throw errHttps
     try {
-      return await getText(httpUrl, options);
+      return await getText(httpUrl, options)
     } catch (errHttp) {
-      const err = new Error(
-        `https: ${errHttps.message} | http: ${errHttp.message}`,
-      );
-      err.status = errHttp.status || errHttps.status;
-      throw err;
+      const err = new Error(`https: ${errHttps.message} | http: ${errHttp.message}`)
+      err.status = errHttp.status || errHttps.status
+      throw err
     }
   }
 }
 
 /** 以 JSON 解析 GET 结果 */
 export async function getJson(url, options = {}) {
-  const text = await getTextAny(url, options);
-  return JSON.parse(text);
+  const text = await getTextAny(url, options)
+  return JSON.parse(text)
 }
 
 /**
@@ -70,27 +68,25 @@ export async function getJson(url, options = {}) {
  * @param {{headers?: object, timeout?: number}} [options]
  */
 export async function postTextAny(httpsUrl, body, options = {}) {
-  const { headers = {}, timeout = DEFAULT_TIMEOUT } = options;
+  const { headers = {}, timeout = DEFAULT_TIMEOUT } = options
   const doPost = async (url) => {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'User-Agent': DEFAULT_UA, ...headers },
       body,
       signal: AbortSignal.timeout(timeout),
-    });
-    return await res.text();
-  };
+    })
+    return await res.text()
+  }
   try {
-    return await doPost(httpsUrl);
+    return await doPost(httpsUrl)
   } catch (errHttps) {
-    const httpUrl = httpsUrl.replace(/^https:/, 'http:');
-    if (httpUrl === httpsUrl) throw errHttps;
+    const httpUrl = httpsUrl.replace(/^https:/, 'http:')
+    if (httpUrl === httpsUrl) throw errHttps
     try {
-      return await doPost(httpUrl);
+      return await doPost(httpUrl)
     } catch (errHttp) {
-      throw new Error(
-        `https: ${errHttps.message} | http: ${errHttp.message}`,
-      );
+      throw new Error(`https: ${errHttps.message} | http: ${errHttp.message}`)
     }
   }
 }
@@ -110,11 +106,11 @@ export async function getAudioTotalBytes(url, timeout = 10000) {
   // 探测失败会退化成「无法判定」，进而放行占位片段（已实测出现过误判），
   // 因此失败重试一次，尽量拿到确定结果。
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const total = await probeOnce(url, timeout);
-    if (total > 0) return total;
-    if (attempt === 1) await new Promise((r) => setTimeout(r, 300));
+    const total = await probeOnce(url, timeout)
+    if (total > 0) return total
+    if (attempt === 1) await new Promise((r) => setTimeout(r, 300))
   }
-  return 0;
+  return 0
 }
 
 async function probeOnce(url, timeout) {
@@ -122,18 +118,18 @@ async function probeOnce(url, timeout) {
     const res = await fetch(url, {
       headers: { Range: 'bytes=0-1', 'User-Agent': DEFAULT_UA },
       signal: AbortSignal.timeout(timeout),
-    });
+    })
     // 优先用 Content-Range: bytes 0-1/12345 里的总长
-    const contentRange = res.headers.get('content-range');
+    const contentRange = res.headers.get('content-range')
     if (contentRange && contentRange.includes('/')) {
-      const total = Number(contentRange.split('/').pop());
-      if (Number.isFinite(total) && total > 0) return total;
+      const total = Number(contentRange.split('/').pop())
+      if (Number.isFinite(total) && total > 0) return total
     }
-    const len = Number(res.headers.get('content-length'));
-    if (Number.isFinite(len) && len > 0) return len;
-    return 0;
+    const len = Number(res.headers.get('content-length'))
+    if (Number.isFinite(len) && len > 0) return len
+    return 0
   } catch (e) {
-    return 0;
+    return 0
   }
 }
 
@@ -143,7 +139,7 @@ async function probeOnce(url, timeout) {
  * 若返回 http 直链，在 https 页面上会触发混合内容拦截而无法播放。
  */
 export function toHttps(url) {
-  return String(url || '').replace(/^http:/, 'https:');
+  return String(url || '').replace(/^http:/, 'https:')
 }
 
-export default { getText, getTextAny, getJson, postTextAny, getAudioTotalBytes, toHttps };
+export default { getText, getTextAny, getJson, postTextAny, getAudioTotalBytes, toHttps }
