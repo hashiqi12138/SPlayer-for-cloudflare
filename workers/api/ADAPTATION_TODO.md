@@ -31,6 +31,18 @@
 > （所有歌曲同一资源），它是合法 MP3、能通过 Range 校验，实际只有约 0.4 秒。
 > 同一 rid 境内直连为 2.0MB 完整歌曲，可确认是出口 IP 导致的降级。
 >
+> **酷我实际有两道独立闸门**（已用双向实验确认，见
+> `scripts/probe-kuwo-region-gate.cjs` 与 `probe-kuwo-ua.cjs`）：
+>
+> 1. **UA 闸门**：浏览器 UA 一律下发占位片段 —— 境内直连用 Chrome UA 也是
+>    15.6KB，换成 `okhttp/3.10.0`、`Dart/2.19`、客户端 UA 甚至空 UA 都是完整歌曲。
+>    因此出站请求必须使用客户端 UA，**不能图省事用浏览器 UA**。
+> 2. **IP 闸门**：非中国大陆出口一律下发占位片段，与请求头完全无关。
+>    境内连接伪造境外 IP 头（8.8.8.8 / 104.16.0.1）仍是完整歌曲；
+>    从 Cloudflare 伪造境内 IP 头仍是占位片段 —— 说明只认真实 TCP 出口 IP。
+>
+> 即：**加请求头无法绕过 IP 闸门**，Cloudflare 出口命中的是这一道。
+>
 > 为此接口增加了**占位片段拦截**（`getAudioTotalBytes` + `MIN_VALID_AUDIO_BYTES`），
 > 命中时返回 `code:404, reason:"stub-audio"`，避免前端「假成功」后播放中断。
 >
@@ -111,4 +123,13 @@ node scripts/probe-unblock-latency.cjs https://ncm-api.liujieahu.workers.dev 3
 
 # 9. 校验线上产物中酷我音源默认已启用
 node scripts/probe-unlock-default.cjs https://dev.splayer-dvj.pages.dev
+
+# 10. 判定地域限制依据（真实出口 IP vs 请求头），双向实验
+node scripts/probe-kuwo-region-gate.cjs
+
+# 11. UA 闸门验证（浏览器 UA 会触发占位片段）
+node scripts/probe-kuwo-ua.cjs local
+
+# 12. 占位片段出现概率采样
+node scripts/probe-kuwo-stub-rate.cjs 12
 ```

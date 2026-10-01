@@ -30,6 +30,7 @@ const baseHeaders = () => ({
   devid: deviceId,
   ver: '3.9.0',
   host: 'bd-api.kuwo.cn',
+  accept: 'application/json, text/plain, */*',
 });
 
 /** 把搜索结果统一成便于匹配的结构 */
@@ -73,7 +74,7 @@ async function search(match) {
     '&rformat=json&mobi=1&show_copyright_off=1&searchapi=6&all=' +
     keyword;
 
-  const text = await getTextAny(url, { headers: { 'User-Agent': DART_UA } });
+  const text = await getTextAny(url, { headers: { 'User-Agent': DART_UA, accept: 'application/json, text/plain, */*' } });
   const data = JSON.parse(text);
 
   const abslist = data?.content?.[1]?.musicpage?.abslist;
