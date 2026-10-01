@@ -61,7 +61,7 @@ jobs:
           exit $code
 
       - name: 检出代码（含 submodule 固定版本）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
           submodules: recursive
