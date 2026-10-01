@@ -11,7 +11,25 @@
 - [x] 模块自动转译：**429 / 441** 个接口模块
 - [x] shim 机制：`logger` / `util` / `pkg` / `axios` / `config` / `crypto`
 - [x] 同目录模块互调（`require('./ad_get.js')` → `__moduleRef('/ad/get')`）
-- [x] 批量接口测试脚本（63 个用例，含播放链路回归与解密往返校验）
+- [x] 批量接口测试脚本（68 个用例，含播放链路回归与解密往返校验）
+- [x] 解锁（解灰）接口 `/api/unblock/*`，见下节
+
+## 解锁（解灰）接口
+
+对接前端 `src/api/song.ts`（`baseURL: "/api/unblock"`）与 `docs/api.md` 的 UnblockAPI 契约。
+实现位于 `src/unblock/`，响应统一为 `{ code, url }`，HTTP 恒为 200。
+
+| 音源 | 路由 | Cloudflare 出口 | 说明 |
+|---|---|---|---|
+| 酷我 | `GET /api/unblock/kuwo?keyword=` | ✅ 可用 | 搜索匹配 + DES 加密取直链，主力音源 |
+| 波点 | `GET /api/unblock/bodian?keyword=` | ❌ 地区限制 | 上游返回 407「仅限中国大陆地区使用」 |
+| 网易云 | `GET /api/unblock/netease?id=` | ❌ 源站封禁 | GD 音乐台对 Cloudflare 出口返回 403 |
+
+- DES 加密（`src/unblock/kwdes.js`）由前端 `electron/server/unblock/kwDES.js` 原样移植，纯 JS BigInt，无需 Node 原生加密。
+- 返回直链统一升级为 https（实测酷我 CDN 支持），否则 https 页面会因混合内容被拦截。
+- 失败响应附带 `reason`（`no-match` / `region-locked` / `source-blocked` / `timeout` 等），
+  前端契约只认 `code`/`url`，多余字段仅用于运维排查与测试分类。
+- 后两个音源在国内出口 IP 下实测均可用，属**部署出口位置**问题而非实现缺陷。
 
 ## 尚未适配（12 个）
 
@@ -30,8 +48,12 @@
 
 1. **网易云风控（-462）**：Cloudflare 出口 IP 触发人机验证。属环境问题，
    换住宅/自建出口 IP 可恢复；测试脚本已单独归类，不计入失败率。
-2. **CPU 时间限制**：免费版单请求 10ms CPU。加密与多步请求接口可能超时。
-3. **`xeapi` / `neapi` 加密**：依赖 Node 版 X25519 ECDH 与随机变换链，
+2. **解锁音源出口限制**：酷我可用；波点（407 地区限制）与网易云聚合接口
+   （403 封禁）拒绝 Cloudflare 出口。同为环境问题，已归入「受限」分类。
+3. **解锁接口耗时**：酷我解密为纯 JS 大数运算，叠加跨境网络，实测 2～25s，
+   明显慢于本地。前端并发请求三音源并取首个成功，可缓解感知延迟。
+4. **CPU 时间限制**：免费版单请求 10ms CPU。加密与多步请求接口可能超时。
+5. **`xeapi` / `neapi` 加密**：依赖 Node 版 X25519 ECDH 与随机变换链，
    Workers 下未实现，请求会降级到 eapi（见 `ncm-request-handler.js`）。
 
 ## 验证方式
@@ -50,4 +72,13 @@ node scripts/probe-play.cjs 2702937653
 
 # 4. cookie 透传矩阵校验
 node scripts/verify-cookie-forward.cjs http://127.0.0.1:8788
+
+# 5. 解锁接口（服务信息 / 各音源 / 空参数）
+node scripts/probe-unblock-api.cjs http://127.0.0.1:8788
+
+# 6. 解锁多音源 × 多样例矩阵对比
+node scripts/probe-unblock-samples.cjs http://127.0.0.1:8788
+
+# 7. 解锁端到端：拿到直链并实际拉流校验可播放性
+node scripts/probe-unblock-playable.cjs https://dev.splayer-dvj.pages.dev
 ```

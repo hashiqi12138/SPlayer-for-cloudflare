@@ -11,8 +11,9 @@
 
 // ====== 配置区 ======
 // 你的 API Worker 地址（不带尾部斜杠）
-// 部署后替换为实际地址，或者通过环境变量配置
-const API_WORKER_URL = "https://ncm-api.xxx.workers.dev";
+// 部署脚本会把本目录整体同步到 splayer-frontend/functions，
+// 这里保持与线上一致的真实地址，避免同步后回退成占位符。
+const API_WORKER_URL = "https://ncm-api.liujieahu.workers.dev";
 
 export async function onRequest(context) {
   const { request, env, params } = context;

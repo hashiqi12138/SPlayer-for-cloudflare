@@ -296,6 +296,137 @@ async function runTests() {
     }
   }
 
+  // ===== 额外：解锁（解灰）接口 =====
+  // 契约见 splayer-frontend/docs/api.md：统一返回 {code, url}，HTTP 恒为 200。
+  // 三个音源相互独立，前端并发请求后取第一个成功的，因此逐个校验。
+  // 注意：这些接口依赖第三方音源，若上游变更会在此暴露。
+  {
+    const httpsMp3 = /^https:\/\/.+\.(mp3|flac|m4a)/i;
+
+    // 上游对出口 IP 的限制（非中国大陆出口常见），属环境问题而非实现缺陷，
+    // 与网易云 -462 风控同类处理，单独归入「受限」不计失败。
+    const ENV_REASONS = new Set(['source-blocked', 'region-locked', 'timeout']);
+
+    const evalUnblockResult = (j, strict, allowEnvBlock) => {
+      if (
+        j.code === 200 &&
+        typeof j.url === 'string' &&
+        j.url.startsWith('https://')
+      ) {
+        if (!strict || httpsMp3.test(j.url)) return { pass: true };
+        return { pass: false, msg: `直链格式异常: ${j.url}` };
+      }
+      if (allowEnvBlock && ENV_REASONS.has(j.reason)) {
+        return { pass: true, blocked: true, msg: `上游环境限制 (${j.reason})` };
+      }
+      return {
+        pass: false,
+        msg: `期望 200+https 直链，实际 code=${j.code} url=${j.url} reason=${j.reason || ''}`,
+      };
+    };
+
+    const checks = [
+      {
+        name: '解锁-服务信息',
+        path: '/api/unblock',
+        verify: (j) =>
+          Array.isArray(j.sources) && j.sources.includes('kuwo')
+            ? { pass: true }
+            : { pass: false, msg: 'sources 缺少 kuwo' },
+      },
+      {
+        name: '解锁-酷我',
+        path: '/api/unblock/kuwo?keyword=' + encodeURIComponent('灰姑娘-梁咏琪'),
+        // 酷我实测在各环境均可用，按硬断言校验
+        verify: (j) => evalUnblockResult(j, true, false),
+      },
+      {
+        name: '解锁-波点',
+        path: '/api/unblock/bodian?keyword=' + encodeURIComponent('灰姑娘-梁咏琪'),
+        // 波点对 Cloudflare 境外出口会返回「仅限中国大陆地区使用」
+        verify: (j) => evalUnblockResult(j, true, true),
+      },
+      {
+        name: '解锁-网易云',
+        path: '/api/unblock/netease?id=33894312',
+        // 聚合接口对 Cloudflare 出口返回 403
+        verify: (j) => evalUnblockResult(j, false, true),
+      },
+      {
+        name: '解锁-空关键词',
+        path: '/api/unblock/kuwo?keyword=',
+        verify: (j) =>
+          j.code === 404 && j.url === null && j.reason === 'empty-keyword'
+            ? { pass: true }
+            : {
+                pass: false,
+                msg: `期望 404/empty-keyword，实际 code=${j.code} reason=${j.reason}`,
+              },
+      },
+    ];
+
+    for (const c of checks) {
+      const idx = testCases.length + 1;
+      process.stdout.write(`[${idx}/${idx}] ${c.name}... `);
+      let entry;
+      try {
+        const res = await fetch(BASE_URL + c.path, {
+          signal: AbortSignal.timeout(40000),
+        });
+        const text = await res.text();
+        let json = null;
+        try {
+          json = JSON.parse(text);
+        } catch (e) {
+          /* 交给下面的非 JSON 分支处理 */
+        }
+
+        if (!json) {
+          entry = {
+            name: c.name,
+            path: c.path,
+            pass: false,
+            status: res.status,
+            errorMsg: `非 JSON 响应 (HTTP ${res.status})`,
+          };
+        } else {
+          const verdict = c.verify(json);
+          entry = {
+            name: c.name,
+            path: c.path,
+            pass: verdict.pass,
+            blocked: !!verdict.blocked,
+            status: res.status,
+            responseCode:
+              json.code !== undefined ? json.code : res.status,
+            errorMsg: verdict.pass ? verdict.msg || null : verdict.msg,
+          };
+        }
+      } catch (e) {
+        entry = {
+          name: c.name,
+          path: c.path,
+          pass: false,
+          status: 'error',
+          errorMsg: e.message,
+        };
+      }
+
+      testCases.push(entry);
+      results.push(entry);
+      if (entry.blocked) {
+        blocked++;
+        console.log(`🚧  (${entry.errorMsg})`);
+      } else if (entry.pass) {
+        passed++;
+        console.log('✅');
+      } else {
+        failed++;
+        console.log(`❌  (${entry.status}, ${entry.errorMsg || 'unknown'})`);
+      }
+    }
+  }
+
   // 输出报告
   console.log('');
   console.log('═'.repeat(50));
@@ -304,7 +435,7 @@ async function runTests() {
   console.log(`  总计: ${testCases.length}`);
   console.log(`  通过: ${passed}  (${((passed / testCases.length) * 100).toFixed(1)}%)`);
   console.log(`  跳过: ${skipped}  (需登录，未提供 NCM_COOKIE)`);
-  console.log(`  风控: ${blocked}  (网易云 -462，Cloudflare 出口 IP 环境问题)`);
+  console.log(`  受限: ${blocked}  (出口 IP 环境限制：网易云 -462 风控 / 解锁音源地区限制)`);
   console.log(`  失败: ${failed}  (${((failed / testCases.length) * 100).toFixed(1)}%)`);
   console.log('');
   
@@ -478,7 +609,7 @@ function generateMarkdownReport(results, passed, failed, skipped = 0, blocked = 
 `;
 
   let idx = 1;
-  results.filter(r => r.pass && !r.skipped).forEach(r => {
+  results.filter(r => r.pass && !r.skipped && !r.blocked).forEach(r => {
     md += `| ${idx++} | ${r.name} | \`${r.path.split('?')[0]}\` |\n`;
   });
   
@@ -497,17 +628,19 @@ function generateMarkdownReport(results, passed, failed, skipped = 0, blocked = 
   
   if (blocked > 0) {
     md += `
-## 被网易云风控拦截的接口
+## 受出口 IP 限制的接口
 
-> 返回业务码 \`-462\`（需要人工验证）。属于 Cloudflare 出口 IP 的信誉问题，
-> 非接口移植缺陷，换用住宅/自建 IP 通常即可恢复。
+> 两类情况，均属环境问题而非接口移植缺陷，换用合适的出口 IP 通常即可恢复：
+>
+> - 网易云业务码 \`-462\`（需人工验证）
+> - 解锁音源返回 \`source-blocked\` / \`region-locked\`（如波点提示「仅限中国大陆地区使用」）
 
-| # | 接口名称 | 路径 |
-|---|---------|------|
+| # | 接口名称 | 路径 | 原因 |
+|---|---------|------|------|
 `;
     idx = 1;
     results.filter(r => r.blocked).forEach(r => {
-      md += `| ${idx++} | ${r.name} | \`${r.path.split('?')[0]}\` |\n`;
+      md += `| ${idx++} | ${r.name} | \`${r.path.split('?')[0]}\` | ${r.errorMsg || ''} |\n`;
     });
   }
   

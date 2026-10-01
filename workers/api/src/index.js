@@ -14,6 +14,7 @@
 import { applyAllPolyfills } from './polyfills.js';
 import { registerModules } from './module-router.js';
 import { registerGeneratedRoutes } from './generated-routes.js';
+import { registerUnblockRoutes } from './unblock/index.js';
 
 // 应用 Workers 环境 polyfills
 applyAllPolyfills();
@@ -92,7 +93,10 @@ function createExpressApp() {
   // ============================================================
   // 手动适配的复杂/特殊接口（优先注册，确保正确）
   registerModules(app);
-  
+
+  // 解锁（解灰）接口：/api/unblock/*
+  registerUnblockRoutes(app);
+
   // 自动生成的 351 个简单接口（补充）
   registerGeneratedRoutes(app);
   

@@ -74,6 +74,15 @@ VITE_API_URL=/api/netease
 $redirectsSrc = Join-Path $ConfigDir "_redirects"
 $redirectsDest = Join-Path $FrontendDir "_redirects"
 Copy-Item $redirectsSrc $redirectsDest -Force
+
+# 复制 Pages Functions（/api/netease、/api/unblock、/music/unblock 等转发函数）
+# frontend-config\functions 为唯一事实来源，避免重新 clone 前端后函数丢失
+$functionsSrc = Join-Path $ConfigDir "functions"
+$functionsDest = Join-Path $FrontendDir "functions"
+if (Test-Path $functionsSrc) {
+    Copy-Item $functionsSrc $functionsDest -Recurse -Force
+    Write-Host "   ✅ Pages Functions 已同步" -ForegroundColor Green
+}
 Write-Host "📄 _redirects 配置已复制" -ForegroundColor Green
 Write-Host ""
 
