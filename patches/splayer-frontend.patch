@@ -1,0 +1,13 @@
+﻿diff --git a/src/stores/setting.ts b/src/stores/setting.ts
+index 4594ba7..72bb646 100644
+--- a/src/stores/setting.ts
++++ b/src/stores/setting.ts
+@@ -525,7 +525,7 @@ export const useSettingStore = defineStore("setting", {
+     songVolumeFadeTime: 300,
+     enableReplayGain: false,
+     replayGainMode: "track",
+-    useSongUnlock: true,
++    useSongUnlock: false,
+     songUnlockServer: [
+       { key: SongUnlockServer.BODIAN, enabled: true },
+       { key: SongUnlockServer.NETEASE, enabled: true },

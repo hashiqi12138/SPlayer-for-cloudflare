@@ -175,7 +175,10 @@ const __moduleRef = (route) => (query, request, deps) =>
  * 自动生成 —— 请勿手动编辑
  *
  * 来源: api-enhanced/ncm-source/module
- * 生成时间: ${new Date().toISOString()}
+ *
+ * 本文件刻意不写入生成时间：它是入库产物，输出必须可复现，
+ * 否则每次依赖更新都会产生只有时间戳变化的噪音 diff。
+ * 需要知道生成时间时看 git 历史即可。
  *
  * 已转译: ${entries.length} 个模块
  * 已跳过: ${skipped.length} 个（依赖特殊，走 module-router.js 手动实现）

@@ -1,18 +1,27 @@
 {
   "name": "splayer-cloudflare",
   "version": "1.0.0",
+  "private": true,
   "description": "SPlayer + api-enhanced 全 Cloudflare 部署方案",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "login": "npx wrangler login",
+    "deps:status": "node scripts/deps.mjs status",
+    "deps:setup": "node scripts/deps.mjs setup",
+    "deps:apply": "node scripts/deps.mjs apply",
+    "deps:update": "node scripts/deps.mjs update",
+    "build:api": "node workers/api/scripts/build-modules.cjs",
+    "test:api": "node workers/api/scripts/test-api.cjs",
+    "dev:proxy": "cd workers/music-proxy && npx wrangler dev",
+    "dev:api": "cd workers/api && npx wrangler dev",
     "deploy:proxy": "powershell -ExecutionPolicy Bypass -File scripts/deploy-proxy-worker.ps1",
     "deploy:api": "powershell -ExecutionPolicy Bypass -File scripts/deploy-api-worker.ps1",
     "deploy:pages": "powershell -ExecutionPolicy Bypass -File scripts/deploy-pages.ps1",
-    "deploy:all": "powershell -ExecutionPolicy Bypass -File scripts/deploy-all.ps1",
-    "dev:proxy": "cd workers/music-proxy && npx wrangler dev",
-    "dev:api": "cd workers/api && npx wrangler dev",
-    "setup:api": "cd workers/api && node scripts/setup-api-enhanced.js"
+    "deploy:all": "powershell -ExecutionPolicy Bypass -File scripts/deploy-all.ps1"
   },
   "devDependencies": {
-    "wrangler": "^3.100.0"
+    "wrangler": "^4.144.0"
   }
 }
