@@ -186,6 +186,23 @@ const ourSourceFiles = walk(ROOT)
 }
 
 // ------------------------------------------------------------
+// 3.5 .sh 的「可执行位」必须记进 git
+//
+// 这条是踩出来的：git 里若是 100644，Linux 上 checkout 出来的 .sh 就没有 +x，
+// 而 `bash -c <路径>` 会把路径当命令执行、直接 Permission denied。
+// Windows 不校验可执行位（MSYS2 下看着像 755），所以本地一直绿、CI 一直红，
+// 而且失败信息只是一句 Permission denied，很容易被当成环境问题忽略。
+// ------------------------------------------------------------
+{
+  const out = run('git', ['ls-files', '-s', '--', '*.sh'], { stdio: 'pipe' }).stdout || ''
+  const bad = out
+    .split('\n')
+    .filter((l) => l.trim() && !l.startsWith('100755'))
+    .map((l) => `${(l.split('\t')[1] || l).trim()}：应为 100755（git update-index --chmod=+x）`)
+  record(bad.length === 0, '.sh 在 git 中记录为可执行', bad)
+}
+
+// ------------------------------------------------------------
 // 4. 自有 JS 语法检查
 // ------------------------------------------------------------
 {
@@ -414,7 +431,12 @@ const ourSourceFiles = walk(ROOT)
   } else {
     const script = path.join(ROOT, 'scripts', 'tests', 'deploy-scripts.test.sh')
     const target = process.platform === 'win32' ? toPosixPath(script) : script
-    const r = run(bash.cmd, ['-lc', target], { stdio: 'pipe' })
+    // 用 `bash -lc 'bash <路径>'` 而不是 `bash -lc '<路径>'`：
+    // 后者会把路径当**命令**执行，依赖文件的「可执行位」。Windows 不校验可执行位，
+    // 所以本地一直是绿的；Linux runner 上 git 里若没有记录 +x，就会直接
+    // `Permission denied` —— 表现出来是「自检失败但一条 [FAIL] 都没有」。
+    // 显式用 bash 解释执行，就不再依赖文件模式（仓库里同时也把脚本标成可执行）。
+    const r = run(bash.cmd, ['-lc', `bash '${target}'`], { stdio: 'pipe' })
     const out = `${r.stdout || ''}${r.stderr || ''}`
     const lines = out.split('\n').filter((l) => l.trim())
     const offenders = lines.filter((l) => l.includes('[FAIL]')).map((l) => l.trim())
