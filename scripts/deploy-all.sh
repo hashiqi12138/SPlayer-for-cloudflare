@@ -6,6 +6,7 @@
 #   ./scripts/deploy-all.sh                交互式选择部署范围
 #   ./scripts/deploy-all.sh --mode=4       直接全部部署
 #   ./scripts/deploy-all.sh --mode=3 --non-interactive
+#   ./scripts/deploy-all.sh --mode=3 --preview        前端发到预览环境
 #
 # 部署范围:
 #   1 = 音乐代理 Worker
@@ -18,13 +19,17 @@
 
 set -euo pipefail
 
-USAGE='用法: deploy-all.sh [--mode=1|2|3|4] [--non-interactive]
+USAGE='用法: deploy-all.sh [--mode=1|2|3|4] [--non-interactive] [--preview]
 
 部署范围:
   1  音乐代理 Worker
   2  API Worker
   3  前端 Pages
   4  全部（代理 + API + 前端）
+
+参数:
+  --preview           前端发到预览环境（分支别名）
+                      仅对前端 Pages 有意义，Worker 只有一个正式环境
 
 环境变量:
   NON_INTERACTIVE=1   等同 --non-interactive'
@@ -74,6 +79,13 @@ case "$MODE" in
   *) die "无效的部署范围：$MODE" "可选 1 / 2 / 3 / 4" ;;
 esac
 
+# --preview 只对前端有意义。只选 Worker 时直接报错，而不是静默忽略 ——
+# 静默忽略会让人以为「我发的是预览」，实际却改了线上 worker。
+if deploy_target_is_preview && { [ "$MODE" = '1' ] || [ "$MODE" = '2' ]; }; then
+  die "--preview 只适用于前端 Pages（--mode=3 / 4）" \
+    "Worker 只有一个正式环境，没有预览环境可发"
+fi
+
 echo
 # ------------------------------------------------------------
 # 前置检查
@@ -98,7 +110,13 @@ echo
 # 下层再问一次（例如 API Worker 询问是否本地测试）会卡住自动化。
 run_child() {
   local script="$1"
-  bash "$SCRIPT_DIR/$script" --non-interactive
+  local extra=("--non-interactive")
+  # --preview 只对 Pages 有意义：Worker 只有一个正式环境，
+  # 把 --preview 透传给 worker 脚本只会被它拒绝，所以这里按脚本分派。
+  if [ "$script" = 'deploy-pages.sh' ] && deploy_target_is_preview; then
+    extra+=("--preview")
+  fi
+  bash "$SCRIPT_DIR/$script" "${extra[@]}"
 }
 
 case "$MODE" in

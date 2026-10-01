@@ -219,6 +219,26 @@ confirm() {
 #   --non-interactive   等价于 NON_INTERACTIVE=1
 #   -h | --help         打印用法后退出（用法由调用方通过 usage 变量提供）
 # ------------------------------------------------------------
+# 部署目标：prod（默认，发正式环境）或 preview（发预览环境）
+#
+# Pages 用分支别名区分正式/预览；Worker 只有一个正式环境，因此 worker 脚本
+# 会明确拒绝 preview —— 免得出现「以为发的是预览，其实动了线上」。
+DEPLOY_TARGET="${DEPLOY_TARGET:-prod}"
+
+deploy_target_is_preview() {
+  [ "$DEPLOY_TARGET" = 'preview' ]
+}
+
+# Worker 只有一个正式环境（没有分支别名这回事）。
+# 明确拒绝 --preview，而不是静默忽略：静默忽略会让人以为「我发的是预览」，
+# 实际却改了线上 worker —— 这类误解比直接报错危险得多。
+reject_preview_target() {
+  if deploy_target_is_preview; then
+    die "该脚本不支持 --preview：Worker 只有一个正式环境" \
+      "Pages 才有正式/预览之分；Worker 请去掉 --preview 后重试"
+  fi
+}
+
 parse_common_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -226,8 +246,16 @@ parse_common_args() {
         NON_INTERACTIVE=1
         shift
         ;;
+      --preview)
+        DEPLOY_TARGET='preview'
+        shift
+        ;;
+      --prod)
+        DEPLOY_TARGET='prod'
+        shift
+        ;;
       -h | --help)
-        printf '%s\n' "${USAGE:-用法: $0 [--non-interactive]}"
+        printf '%s\n' "${USAGE:-用法: $0 [--non-interactive] [--preview]}"
         exit 0
         ;;
       *)

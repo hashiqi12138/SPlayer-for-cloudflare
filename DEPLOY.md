@@ -35,7 +35,31 @@
 | 组件 | 地址 | 状态 |
 |------|------|------|
 | API Worker | `https://ncm-api.liujieahu.workers.dev` | ✅ 运行中 |
-| 前端 Pages | `splayer` 项目 | ✅ 运行中 |
+| 音频代理 Worker | `https://music-proxy.liujieahu.workers.dev` | ✅ 运行中 |
+| 前端 Pages（正式） | `https://splayer-dvj.pages.dev` | ✅ 运行中 |
+| 前端 Pages（预览） | `https://dev.splayer-dvj.pages.dev` | ✅ 运行中 |
+
+### 正式环境与预览环境
+
+Cloudflare Pages 用**分支别名**区分环境，两个环境的产物完全独立：
+
+| 目标 | 出现在 Pages 的哪个环境 | 线上地址 |
+|------|------------------------|---------|
+| 正式 (production) | Production 部署（不加 `--branch`） | `pagesProdUrl` |
+| 预览 (preview) | `pagesPreviewBranch` 分支的别名部署 | `pagesPreviewUrl` |
+
+`deploy.config.json` 里对应三组键：`pagesProdUrl`、`pagesPreviewBranch`、`pagesPreviewUrl`。
+
+```bash
+npm run deploy:pages                       # 发正式（默认）
+bash scripts/deploy-pages.sh --preview     # 发预览
+```
+
+两个 Worker 只有正式环境，`--preview` / `-Preview` 会被拒绝。
+
+> 早先配置里只有一组 `pagesBranch: "dev"`，部署脚本无条件带 `--branch=dev`，
+> 结果是**每次部署都进预览环境，正式环境从未有过部署**。现在目标是命令行显式选择，
+> 默认发正式。
 
 API Worker 已实现 eapi / weapi / api / linuxapi 加密，413 个接口中 385 个自动转译上线，其余 28 个依赖 `qrcode`、`unblockmusic-utils`、文件上传等 Workers 不兼容模块，已单独处理或降级。
 
@@ -153,6 +177,14 @@ pnpm build
 npx wrangler pages deploy out/renderer --project-name=splayer
 ```
 
+> **不要**在这里手写 `--branch`。加 `--branch=xxx` 会把这次部署标记成**预览**，
+> 正式环境不会更新（早先就是这么踩的坑）。上面这条命令不带 `--branch`，
+> 因此落到正式环境。
+>
+> 手动流程仅用于理解原理；实际发布请用 `npm run deploy:pages`，它同时完成了
+> 依赖闸门、Functions 注入、`_redirects`/`_headers` 收尾与版本戳写入 —— 少任何一步，
+> 线上都可能是「看着部署成功、其实缺东西」。
+
 ### 第五步：配置 Pages 路由（将 API 请求转发到 Worker）
 
 部署完 Pages 后，需要配置 Pages Functions 或者 Workers Routes 来实现路径转发：
@@ -249,8 +281,13 @@ splayer-cloudflare/
 
 | 组件 | 方式 |
 |---|---|
-| 前端 Pages | Cloudflare 控制台 → Pages → 项目 → Deployments → 选中目标版本 → Rollback；或 `git checkout <旧 tag>` 后重跑 `npm run deploy:pages` |
+| 前端 Pages（正式） | Cloudflare 控制台 → Pages → 项目 → Deployments → 找到 **Production** 的目标版本 → Rollback；或 `git checkout <旧 tag>` 后重跑 `npm run deploy:pages` |
+| 前端 Pages（预览） | 同上，但选中带分支别名的那条部署；或重跑 `bash scripts/deploy-pages.sh --preview` |
 | API Worker | `npx wrangler rollback --name <worker 名>`；或 `git checkout <旧 tag>` 后重跑 `npm run deploy:api` |
+
+控制台里的 Rollback 是**按部署**生效的：正式环境和预览环境的部署各占一条记录，
+回滚正式那条不会动到预览，反之亦然。用命令行重发时也要选对目标 ——
+回滚正式就**不要**加 `--preview`，否则只是又发了一次预览。
 
 注意：只回滚前端产物**不会**还原 `deploy.config.json`。若那次发布同时改过 API 地址，
 需要把配置一并回退后再部署。

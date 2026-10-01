@@ -29,5 +29,7 @@ module.exports = {
   configPath: CONFIG_PATH,
   apiWorkerUrl: cfg.apiWorkerUrl,
   proxyWorkerUrl: cfg.proxyWorkerUrl,
-  pagesUrl: cfg.pagesUrl,
+  // Pages 分正式/预览两个环境；探针默认打正式环境，需要时用命令行参数覆盖
+  pagesProdUrl: cfg.pagesProdUrl,
+  pagesPreviewUrl: cfg.pagesPreviewUrl,
 }

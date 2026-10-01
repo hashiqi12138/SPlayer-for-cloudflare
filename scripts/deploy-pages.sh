@@ -3,7 +3,8 @@
 # SPlayer 前端 Pages 部署脚本（bash 版）
 #
 # 用法:
-#   ./scripts/deploy-pages.sh                    交互式（会询问 API 地址）
+#   ./scripts/deploy-pages.sh                    交互式（会询问 API 地址），发正式环境
+#   ./scripts/deploy-pages.sh --preview          发到预览分支别名（pagesPreviewBranch）
 #   ./scripts/deploy-pages.sh --non-interactive   全部取配置默认值，便于自动化
 #   API_URL=/api/netease ./scripts/deploy-pages.sh --non-interactive
 #
@@ -15,7 +16,12 @@
 
 set -euo pipefail
 
-USAGE='用法: deploy-pages.sh [--non-interactive]
+USAGE='用法: deploy-pages.sh [--non-interactive] [--preview]
+
+参数:
+  --non-interactive      跳过所有询问，取配置默认值
+  --preview              发到预览环境（分支别名 pagesPreviewBranch）
+                         不带该参数时发正式环境 (production)
 
 环境变量:
   API_URL=/api/netease   前端请求的 API 地址（默认 /api/netease，由 Pages Functions 转发）
@@ -129,24 +135,32 @@ echo
 # ------------------------------------------------------------
 # 部署到 Pages
 #
-# 项目名与分支取自 deploy.config.json：
-#   分支留空 -> 发布到 production；填分支名 -> 发布到该分支的 preview 别名。
-# 本项目实际使用 dev 分支别名（https://dev.<project>.pages.dev），
-# 不指定分支会发到 production，访问地址与预期不一致。
+# 目标环境是**显式选择**，不是隐含默认：
+#   默认（不带参数） -> 正式环境。不加 --branch，Pages 视为 production，
+#                       落到项目主域名（pagesProdUrl）
+#   --preview        -> 预览环境。加到 pagesPreviewBranch 指定的分支别名上
+#                       （<branch>.<project>.pages.dev）
+#
+# 以前配置里写死了 pagesBranch=dev，于是每次部署都发预览、正式环境一直是空的。
+# 现在配置拆成两组，且默认发正式 —— 「发哪里」不再取决于配置里碰巧写了什么。
 # ------------------------------------------------------------
 PROJECT_NAME="$(cfg pagesProject)"
-BRANCH="$(cfg pagesBranch || true)"
-
-TARGET_DESC='production'
-BRANCH_ARGS=()
-if [ -n "$BRANCH" ]; then
-  TARGET_DESC="$BRANCH"
+if deploy_target_is_preview; then
+  BRANCH="$(cfg pagesPreviewBranch || true)"
+  [ -n "$BRANCH" ] || die "未配置 pagesPreviewBranch" "预览发布需要指定分支别名，例如 dev"
+  TARGET_DESC="预览环境（分支别名 $BRANCH）"
   BRANCH_ARGS=("--branch=$BRANCH")
+  ACCESS_URL="$(cfg pagesPreviewUrl 2>/dev/null || true)"
+else
+  TARGET_DESC='正式环境 (production)'
+  BRANCH_ARGS=()
+  ACCESS_URL="$(cfg pagesProdUrl 2>/dev/null || true)"
 fi
+[ -n "$ACCESS_URL" ] || ACCESS_URL="https://$PROJECT_NAME.pages.dev"
 
 log_step "部署到 Cloudflare Pages"
 log_dim "项目: $PROJECT_NAME"
-log_dim "分支: $TARGET_DESC"
+log_dim "目标: $TARGET_DESC"
 echo
 
 npx --no-install wrangler pages deploy out/renderer \
@@ -154,7 +168,5 @@ npx --no-install wrangler pages deploy out/renderer \
 
 echo
 banner "前端部署完成"
-ACCESS_URL="$(cfg pagesUrl 2>/dev/null || true)"
-[ -n "$ACCESS_URL" ] || ACCESS_URL="https://$PROJECT_NAME.pages.dev"
 printf '%s\n' "${C_CYAN}访问地址: $ACCESS_URL${C_RESET}"
 echo

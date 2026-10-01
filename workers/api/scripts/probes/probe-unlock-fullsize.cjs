@@ -8,7 +8,7 @@
  */
 const cfg = require('../config.cjs')
 
-const BASE = process.argv[2] || cfg.pagesUrl
+const BASE = process.argv[2] || cfg.pagesProdUrl
 
 const CASES = [
   ['灰姑娘-梁咏琪', '灰姑娘-梁咏琪'],

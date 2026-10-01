@@ -7,13 +7,23 @@
 # ============================================================
 
 param(
-    [switch]$NonInteractive
+    [switch]$NonInteractive,
+    [switch]$Preview
 )
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..")
 $WorkerDir = Join-Path $ProjectRoot "workers\api"
+
+# Worker 只有一个正式环境（没有分支别名这回事）。
+# 明确拒绝 -Preview，而不是静默忽略：静默忽略会让人以为「我发的是预览」，
+# 实际却改了线上 worker —— 这类误解比直接报错危险得多。
+if ($Preview) {
+    Write-Host "❌ 该脚本不支持 -Preview：Worker 只有一个正式环境" -ForegroundColor Red
+    Write-Host "   Pages 才有正式/预览之分；Worker 请去掉 -Preview 后重试" -ForegroundColor Yellow
+    exit 1
+}
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  🎵 部署 api-enhanced Worker" -ForegroundColor Cyan

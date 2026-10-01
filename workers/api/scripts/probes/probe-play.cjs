@@ -24,7 +24,7 @@ const cfg = require('../config.cjs')
 const TARGETS = [
   ['本地 dev', 'http://127.0.0.1:8788'],
   ['已部署 Worker', cfg.apiWorkerUrl],
-  ['dev Pages 代理', `${cfg.pagesUrl}/api/netease`],
+  ['Pages 代理（正式）', `${cfg.pagesProdUrl}/api/netease`],
 ]
 
 function parseCookie(str) {

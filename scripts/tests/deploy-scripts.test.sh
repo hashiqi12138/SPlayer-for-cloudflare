@@ -221,6 +221,48 @@ chk_contains "$out" '无效的部署范围' "非法 --mode 提示文案"
 chk_absent "$out" '前置检查' "参数校验早于前置检查（不该先跑一堆检查）"
 echo
 
+echo "=== 3b. 部署目标：正式 / 预览 ==="
+# 目标必须是显式选择：默认发正式环境 (production)，只有 --preview 才发预览分支别名。
+# 以前配置里写死 pagesBranch=dev，导致每次部署都发预览、正式环境一直是空的，
+# 所以这里把「默认正式」这条规则也一起锁住。
+out="$(bash "$SCRIPTS/deploy-pages.sh" --help 2>&1)"
+chk_contains "$out" '--preview' "pages --help 列出 --preview"
+
+out="$(bash "$SCRIPTS/deploy-all.sh" --help 2>&1)"
+chk_contains "$out" '--preview' "deploy-all --help 列出 --preview"
+
+# 直接对 common.sh 的目标解析做单元级断言（不跑部署，也不需要 node）
+out="$(cd "$SCRIPTS" && . ./lib/common.sh >/dev/null 2>&1; parse_common_args; deploy_target_is_preview && echo preview || echo prod)"
+chk_contains "$out" 'prod' "不给参数时默认目标是正式环境"
+
+out="$(cd "$SCRIPTS" && . ./lib/common.sh >/dev/null 2>&1; parse_common_args --preview; deploy_target_is_preview && echo preview || echo prod)"
+chk_contains "$out" 'preview' "parse_common_args --preview 切到预览"
+
+out="$(cd "$SCRIPTS" && . ./lib/common.sh >/dev/null 2>&1; parse_common_args --preview --prod; deploy_target_is_preview && echo preview || echo prod)"
+chk_contains "$out" 'prod' "parse_common_args --prod 覆盖回正式"
+
+# Worker 只有一个正式环境：必须明确拒绝 --preview，而不是静默忽略
+out="$(bash "$SCRIPTS/deploy-api-worker.sh" --preview --non-interactive 2>&1)"
+rc=$?
+[ $rc -ne 0 ]
+chk $? "api-worker 拒绝 --preview"
+chk_contains "$out" '不支持 --preview' "api-worker 拒绝 --preview 的提示"
+chk_absent "$out" 'wrangler deploy' "api-worker 拒绝后未继续部署"
+
+out="$(bash "$SCRIPTS/deploy-proxy-worker.sh" --preview --non-interactive 2>&1)"
+rc=$?
+[ $rc -ne 0 ]
+chk $? "proxy-worker 拒绝 --preview"
+chk_contains "$out" '不支持 --preview' "proxy-worker 拒绝 --preview 的提示"
+
+out="$(bash "$SCRIPTS/deploy-all.sh" --mode=1 --preview --non-interactive 2>&1)"
+rc=$?
+[ $rc -ne 0 ]
+chk $? "deploy-all --mode=1 --preview 应中止"
+chk_contains "$out" '只适用于前端 Pages' "deploy-all 说明 --preview 只对前端有效"
+chk_absent "$out" '前置检查' "参数矛盾在跑前置检查之前就报错"
+echo
+
 if [ "$HAVE_NODE" = "0" ]; then
   skip_msg "缺少 node，跳过第 4~8 节"
 else
@@ -359,7 +401,15 @@ EOF
     [ $rc -ne 0 ]
     chk $? "proxy-worker 缺 npx 时退出码非 0"
     chk_contains "$out" '未找到命令：npx' "proxy-worker 缺 npx 提示文案"
+
+    # --preview 配前端（mode=3）应当放行，一路走到前置检查才对。
+    # 用「不含 node 的 PATH」把流程卡在 check_node，这样既能证明没被目标校验拦下，
+    # 又不会真的碰到 wrangler / 登录 / 网络。
+    out="$(PATH="$MINBIN" "$BASH_BIN" "$SCRIPTS/deploy-all.sh" --mode=3 --preview --non-interactive 2>&1)"
+    chk_absent "$out" '只适用于前端 Pages' "mode=3 时 --preview 不被拒绝"
+    chk_contains "$out" '未找到命令：node' "mode=3 --preview 走到了前置检查"
   else
+
     skip_msg "无法构造不含 node/npx 的 PATH，跳过「缺少工具」相关检查"
   fi
   echo

@@ -25,8 +25,17 @@ export const CONFIG_FILE = path.join(ROOT, 'deploy.config.json')
 /** 部署链路必需的字段 */
 export const REQUIRED_CONFIG_KEYS = ['apiWorkerUrl', 'proxyWorkerUrl', 'pagesProject']
 
-/** 可选字段（缺失时由调用方给默认值） */
-export const OPTIONAL_CONFIG_KEYS = ['pagesBranch', 'pagesUrl']
+/**
+ * 可选字段（缺失时由调用方给默认值）
+ *
+ * Pages 区分正式与预览两个环境，因此地址和分支是分开的两组：
+ *   - pagesProdUrl      正式地址（Pages 项目主域名）
+ *   - pagesPreviewBranch 预览分支别名（--preview 发布时用）
+ *   - pagesPreviewUrl   预览地址（<branch>.<project>.pages.dev）
+ * 之前只有一组（pagesBranch/pagesUrl），结果每次发布都发到 dev 预览分支，
+ * 正式环境一次都没发过 —— 分成两组后，「发哪里」是显式选择而不是隐含默认。
+ */
+export const OPTIONAL_CONFIG_KEYS = ['pagesProdUrl', 'pagesPreviewBranch', 'pagesPreviewUrl']
 
 /**
  * Pages Functions 模板里的占位符 → deploy.config.json 字段

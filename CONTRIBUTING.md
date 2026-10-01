@@ -95,14 +95,20 @@ npm run verify:full
 #    - CHANGELOG.md 增加新版本小节
 
 # 4. 部署（部署脚本自带依赖闸门，未验证会直接拒绝）
+#    不带参数 = 发正式环境 (production)；想先看效果就加 --preview 发预览
 npm run deploy:pages
 npm run deploy:api
 
 # 5. 核对线上版本，与本地一致才打 tag
-#    浏览器打开 https://<pages 域名>/version.json
+#    正式：https://splayer-dvj.pages.dev/version.json
+#    预览：https://dev.splayer-dvj.pages.dev/version.json
 git tag -a v1.1.0 -m "v1.1.0"
 git push --follow-tags   # 配置了远程仓库之后
 ```
+
+> 前端有两个环境：**正式**（`npm run deploy:pages`，不带 `--branch`）与**预览**
+> （`bash scripts/deploy-pages.sh --preview`）。发布正式版本时务必确认跑的是
+> 不带 `--preview` 的那条 —— 预览环境发得再对，正式环境也不会更新。
 
 `version.json` 里会带上 `dirty` 字段：如果打包时工作区有未提交改动，
 它会显示 `true`——这时「线上对应哪个提交」就不精确了，**不要**据此打 tag。
@@ -125,8 +131,12 @@ git push --follow-tags   # 配置了远程仓库之后
 
 | 组件 | 回滚方式 |
 |---|---|
-| 前端 Pages | Cloudflare 控制台 → Pages → 项目 → Deployments，找到目标版本点 **Rollback**；<br>或本地 `git checkout <旧 tag>` 后重新 `npm run deploy:pages` |
+| 前端 Pages（正式） | Cloudflare 控制台 → Pages → 项目 → Deployments，找到 **Production** 的目标版本点 **Rollback**；<br>或本地 `git checkout <旧 tag>` 后重新 `npm run deploy:pages` |
+| 前端 Pages（预览） | 同上，选中带分支别名的那条部署；<br>或重新 `bash scripts/deploy-pages.sh --preview` |
 | Worker | `npx wrangler rollback --name <worker 名>` 回退到上一个版本；<br>或 `git checkout <旧 tag>` 后重新 `npm run deploy:api` |
+
+Pages 的 Rollback 按部署生效：正式与预览各占一条部署记录，互不影响。用命令行重发时
+目标也要对上 —— 回滚正式**不要**加 `--preview`，否则只是又发了一次预览。
 
 判断「该回滚到哪一版」靠 `/version.json`：它记录了每个部署对应的提交与依赖版本，
 和 git 历史一一对应。
@@ -142,11 +152,12 @@ git push --follow-tags   # 配置了远程仓库之后
 |---|---|
 | `$'\r': command not found` | `.sh` 被检出成 CRLF。`.gitattributes` 已固定 LF，若复现请检查是不是被覆盖 |
 | PowerShell 报 `Missing closing '}'` | `.ps1` 丢了 UTF-8 BOM，PS 5.1 按 ANSI 解码后中文变乱码 |
-| `git status` 显示文件被改但 `git diff` 是空的 | 换行符表示与检出策略不符。仓库已统一 `eol=lf`，用 `git add --renormalize .` 清掉缓存状态 |
+| `git status` 显示文件被改但 `git diff` 是空的 | 换行符表示与检出策略不符。仓库已统一 `eol=lf`，用 `git add --renormalize .` 清掉缓存状态。这类「假脏」还曾经让 `version.json` 的 `dirty` 永远为真（已修） |
 | 前端所有接口 404，但请求看起来正常 | MSYS2 / Git Bash 把 `API_URL=/api/netease` 改写成 `E:/.../api/netease`。见 `scripts/lib/common.sh` 的转换防护 |
 | 部署时报 wrangler 版本和预期不符 | 部署只使用 `package-lock.json` 锁定的版本；缺依赖会提示 `npm ci`，不要用 `npx wrangler` 手动装 |
 | `npm ci` 报 EBUSY / 目录被占用 | 有残留的 `wrangler dev`（`workerd`）进程占着 `node_modules`，先结束它 |
 | `npm run x -- --flag` 里参数没生效 | npm 10 不会把 `--` 之后的参数转发给脚本，会静默按默认值跑。需要传参就给脚本单独起一个名字（如 `verify:full`），或用环境变量 |
+| Pages 显示部署成功，但正式域名还是旧内容 | 这次部署带了 `--branch=<别名>`，进的是**预览环境**。正式与预览是两条独立的部署记录。发正式不要带 `--preview` / `--branch` |
 
 ## 代码风格
 

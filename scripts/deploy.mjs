@@ -50,10 +50,18 @@ let cmd
 let args
 if (shell === 'ps1') {
   const script = path.join(__dirname, `${base}.ps1`)
-  // 统一转成 PowerShell 的参数写法：--non-interactive / -y -> -NonInteractive
-  const psArgs = rest.map((a) =>
-    a === '--non-interactive' || a === '-y' || a === '--yes' ? '-NonInteractive' : a,
-  )
+  // 统一转成 PowerShell 的参数写法：
+  //   --non-interactive / -y / --yes  -> -NonInteractive
+  //   --preview                       -> -Preview
+  const psArgs = rest
+    .map((a) => {
+      if (a === '--non-interactive' || a === '-y' || a === '--yes') return '-NonInteractive'
+      if (a === '--preview') return '-Preview'
+      // --prod 是 bash 侧的显式写法；PowerShell 侧「不带 -Preview」就是正式环境
+      if (a === '--prod') return null
+      return a
+    })
+    .filter((a) => a !== null)
   cmd = 'powershell'
   args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, ...psArgs]
 } else {

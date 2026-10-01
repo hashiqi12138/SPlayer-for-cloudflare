@@ -455,7 +455,7 @@ async function runTests() {
           const res = await fetch(abs, {
             headers: {
               Range: 'bytes=0-2047',
-              Origin: cfg.pagesUrl,
+              Origin: cfg.pagesProdUrl,
             },
             signal: AbortSignal.timeout(30000),
           })

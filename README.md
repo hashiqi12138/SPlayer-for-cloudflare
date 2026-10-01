@@ -12,7 +12,15 @@
 | 音频代理 Worker | `workers/music-proxy/` | 音频 CDN 代理，解决 CORS / Range 请求 |
 | Pages 配置源 | `frontend-config/` | `functions/` 与 `_redirects` 的事实来源，由部署脚本同步 |
 
-线上地址：前端 `https://dev.splayer-dvj.pages.dev`，API `https://ncm-api.liujieahu.workers.dev`
+线上地址：
+
+| 组件 | 正式环境 (production) | 预览环境 |
+|---|---|---|
+| 前端 Pages | `https://splayer-dvj.pages.dev` | `https://dev.splayer-dvj.pages.dev` |
+| API Worker | `https://ncm-api.liujieahu.workers.dev` | 无（Worker 只有正式环境） |
+| 音频代理 Worker | `https://music-proxy.liujieahu.workers.dev` | 无（Worker 只有正式环境） |
+
+地址的唯一事实来源是 `deploy.config.json`，上面的值由它派生。
 
 ## 依赖管理
 
@@ -137,6 +145,28 @@ npm run deploy:all     # 交互式选择
 `npm run deploy:*` 会按平台自动分派：Windows 走 `scripts/deploy-*.ps1`，
 macOS / Linux / CI 走 `scripts/deploy-*.sh`。两套脚本流程完全一致，共享易错环节的实现
 （见下文「脚本分层」）。
+
+### 发布到哪里（正式 / 预览）
+
+**前端 Pages 的目标是显式选择的，不藏在配置默认值里**：
+
+| 目标 | 命令 | 线上位置 |
+|---|---|---|
+| 正式环境 (production) | `npm run deploy:pages`（不加参数）<br>或 `.\scripts\deploy-pages.ps1` | `pagesProdUrl`，即项目主域名 |
+| 预览环境 | `bash scripts/deploy-pages.sh --preview`<br>或 `.\scripts\deploy-pages.ps1 -Preview` | `pagesPreviewBranch` 分支别名，即 `pagesPreviewUrl` |
+
+实现上：发正式时**不给** `wrangler pages deploy` 加 `--branch`，Pages 视为 production；
+发预览时才加 `--branch=<pagesPreviewBranch>`。配置里因此拆成两组键
+（`pagesProdUrl` / `pagesPreviewBranch` + `pagesPreviewUrl`）。
+
+> 这里踩过一次：早先配置只有一组 `pagesBranch: "dev"`，脚本每次都带 `--branch=dev`，
+> 于是**所有部署都进预览环境，正式环境一直是空的**。拆开并让默认值指向正式之后，
+> 「发到哪」由命令行决定，不由配置碰巧写了什么决定。
+
+两个 Worker **没有预览环境**（Worker 不存在分支别名），因此
+`--preview` / `-Preview` 会被 worker 脚本明确拒绝，而不是静默忽略 ——
+免得出现「以为发的是预览，其实动了线上」。`deploy-all` 同理：只选 Worker 时给
+`--preview` 会直接报错。
 
 ### 跳过交互（自动化）
 

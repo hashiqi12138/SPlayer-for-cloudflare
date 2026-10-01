@@ -170,19 +170,27 @@ const ourSourceFiles = walk(ROOT)
 }
 
 // ------------------------------------------------------------
-// 3. shell 脚本与补丁必须是 LF
+// 3. shell 脚本、补丁与生成物必须是 LF
 //
 // 行尾的 \r 会被 bash 当成命令的一部分（$'\r': command not found）；
 // 补丁里的 \r 会让 git apply 的上下文匹配失败。
+//
+// 生成物（generated-routes.js）单列进来是因为它要求「跨平台字节一致」：
+// git 比对会归一化换行，所以 CRLF/LF 的差异在 `git diff` 里看不见，
+// 但它是「构建可复现」的实际破坏者 —— 必须在这里单独守住。
 // ------------------------------------------------------------
 {
   const broken = []
-  for (const rel of tracked.filter((f) => f.endsWith('.sh') || f.endsWith('.patch'))) {
+  const lfFiles = tracked.filter((f) => f.endsWith('.sh') || f.endsWith('.patch'))
+  for (const extra of ['workers/api/src/generated-routes.js']) {
+    if (tracked.includes(extra)) lfFiles.push(extra)
+  }
+  for (const rel of lfFiles) {
     const abs = path.join(ROOT, rel)
     if (!fs.existsSync(abs)) continue
     if (fs.readFileSync(abs).includes(0x0d)) broken.push(rel)
   }
-  record(broken.length === 0, '.sh / .patch 均为 LF 换行', broken)
+  record(broken.length === 0, '.sh / .patch / 生成物 均为 LF 换行', broken)
 }
 
 // ------------------------------------------------------------
@@ -246,7 +254,7 @@ const ourSourceFiles = walk(ROOT)
       cfgOk = false
       details.push(`缺少字段：${missing.join(', ')}`)
     }
-    for (const key of ['apiWorkerUrl', 'proxyWorkerUrl', 'pagesUrl']) {
+    for (const key of ['apiWorkerUrl', 'proxyWorkerUrl', 'pagesProdUrl', 'pagesPreviewUrl']) {
       if (cfg[key] && !/^https?:\/\/\S+$/.test(cfg[key])) {
         cfgOk = false
         details.push(`${key} 不是合法 http(s) 地址：${cfg[key]}`)
@@ -467,16 +475,29 @@ if (WITH_BUILD) {
   if (build.status !== 0) {
     record(false, '生成物可复现', [`build-modules 失败：${(build.stderr || '').trim()}`])
   } else {
-    const diff = run('git', ['diff', '--exit-code', '--', 'workers/api/src/generated-routes.js'], {
-      stdio: 'pipe',
-    })
-    record(
-      diff.status === 0,
-      'generated-routes.js 与重新构建结果一致',
-      diff.status === 0
-        ? []
-        : ['重新构建后与入库版本不一致：请执行 npm run deps:update 并提交重建产物'],
-    )
+    // 与 git 里的版本**逐字节**比较，而不是走 `git diff`。
+    //
+    // `git diff` 会按 .gitattributes 归一化换行：CRLF 与 LF 在它眼里是同一个文件，
+    // 于是「Windows 上构建出 CRLF、入库的是 LF」这种真实的不可复现会被判为通过。
+    // 直接比字节，换行符差异也逃不掉。
+    const rel = 'workers/api/src/generated-routes.js'
+    const details = []
+    let same = false
+    try {
+      const committed = execFileSync('git', ['show', `HEAD:${rel}`], { cwd: ROOT })
+      const onDisk = fs.readFileSync(path.join(ROOT, rel))
+      same = committed.equals(onDisk)
+      if (!same) {
+        details.push(
+          `重新构建后与入库版本不一致（入库 ${committed.length} 字节 / 重建 ${onDisk.length} 字节，` +
+            `换行符差异也算）`,
+          '请执行 npm run deps:update 并提交重建产物',
+        )
+      }
+    } catch (e) {
+      details.push(`无法取出入库版本做比较：${e.message}`)
+    }
+    record(same, 'generated-routes.js 与重新构建结果逐字节一致', details)
   }
 }
 

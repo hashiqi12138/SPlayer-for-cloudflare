@@ -9,11 +9,14 @@
 
 set -euo pipefail
 
-USAGE='用法: deploy-proxy-worker.sh'
+USAGE='用法: deploy-proxy-worker.sh
+
+注意: Worker 只有一个正式环境，不接受 --preview。'
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
 parse_common_args "$@"
+reject_preview_target
 
 banner "部署音乐代理 Worker"
 

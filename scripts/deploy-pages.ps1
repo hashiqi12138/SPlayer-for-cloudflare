@@ -2,12 +2,14 @@
 #  SPlayer 前端 Pages 部署脚本
 #
 #  用法:
-#    .\deploy-pages.ps1                  交互式（会询问 API 地址）
+#    .\deploy-pages.ps1                  交互式（会询问 API 地址），发正式环境
+#    .\deploy-pages.ps1 -Preview         发到预览分支别名（pagesPreviewBranch）
 #    .\deploy-pages.ps1 -NonInteractive  全部取配置默认值，便于自动化
 # ============================================================
 
 param(
-    [switch]$NonInteractive
+    [switch]$NonInteractive,
+    [switch]$Preview
 )
 
 $ErrorActionPreference = "Stop"
@@ -207,16 +209,32 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 
 # 部署到 Pages
-# 项目名与分支取自 deploy.config.json：
-#   分支留空 -> 部署到 production；填写分支名 -> 部署到该分支的 preview 别名。
-# 本项目实际使用 dev 分支别名（https://dev.<project>.pages.dev），
-# 若不指定分支会发到 production，导致访问地址与预期不一致。
+#
+# 目标环境是**显式选择**，不是隐含默认：
+#   默认（不带 -Preview）-> 正式环境。不加 --branch，Pages 视为 production，
+#                           落到项目主域名（pagesProdUrl）
+#   -Preview            -> 预览环境。加到 pagesPreviewBranch 指定的分支别名上
+#
+# 以前配置里写死了 pagesBranch=dev，于是每次部署都发预览、正式环境一直是空的。
+# 现在配置拆成两组，且默认发正式。
 $projectName = $deployConfig.pagesProject
-$branch = $deployConfig.pagesBranch
+if ($Preview) {
+    $branch = $deployConfig.pagesPreviewBranch
+    if ([string]::IsNullOrWhiteSpace($branch)) {
+        Write-Host "❌ 未配置 pagesPreviewBranch：预览发布需要指定分支别名（例如 dev）" -ForegroundColor Red
+        exit 1
+    }
+    $targetDesc = "预览环境（分支别名 $branch）"
+    $accessUrl = if ($deployConfig.pagesPreviewUrl) { $deployConfig.pagesPreviewUrl } else { "https://$branch.$projectName.pages.dev" }
+} else {
+    $branch = $null
+    $targetDesc = "正式环境 (production)"
+    $accessUrl = if ($deployConfig.pagesProdUrl) { $deployConfig.pagesProdUrl } else { "https://$projectName.pages.dev" }
+}
 
 Write-Host "🚀 部署到 Cloudflare Pages..." -ForegroundColor Yellow
 Write-Host "   项目: $projectName" -ForegroundColor Gray
-Write-Host "   分支: $(if ([string]::IsNullOrWhiteSpace($branch)) { 'production' } else { $branch })" -ForegroundColor Gray
+Write-Host "   目标: $targetDesc" -ForegroundColor Gray
 Write-Host ""
 
 Push-Location $FrontendDir
@@ -238,7 +256,6 @@ Write-Host "========================================" -ForegroundColor Green
 Write-Host "  ✅ 前端部署完成!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
-$accessUrl = if ($deployConfig.pagesUrl) { $deployConfig.pagesUrl } else { "https://$projectName.pages.dev" }
 Write-Host "🌐 访问地址: $accessUrl" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "💡 后续步骤:" -ForegroundColor Yellow

@@ -9,7 +9,7 @@
  */
 const cfg = require('../config.cjs')
 
-const BASE = process.argv[2] || cfg.pagesUrl
+const BASE = process.argv[2] || cfg.pagesProdUrl
 
 ;(async () => {
   console.log(`目标: ${BASE}\n`)

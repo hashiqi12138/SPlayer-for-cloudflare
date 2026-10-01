@@ -35,5 +35,5 @@ if (value === undefined || value === null) {
   process.exit(2)
 }
 
-// 只输出值本身，便于命令替换；空字符串表示该键存在但为空（如 pagesBranch 表示发布到 production）
+// 只输出值本身，便于命令替换；空字符串表示该键存在但为空
 process.stdout.write(String(value))

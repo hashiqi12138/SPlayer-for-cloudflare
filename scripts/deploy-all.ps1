@@ -1,6 +1,14 @@
 ﻿# ============================================================
 #  一键部署脚本 - 部署全部组件到 Cloudflare
+#
+#  用法:
+#    .\deploy-all.ps1            菜单交互，前端发正式环境
+#    .\deploy-all.ps1 -Preview   前端发到预览分支别名（Worker 不受影响）
 # ============================================================
+
+param(
+    [switch]$Preview
+)
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -85,6 +93,12 @@ Write-Host "   2. API Worker       (实验性，需要逐步适配)" -Foreground
 Write-Host "   3. 前端 Pages       (SPlayer Web 前端)" -ForegroundColor White
 Write-Host "   4. 全部部署         (代理 + API + 前端)" -ForegroundColor White
 Write-Host ""
+if ($Preview) {
+    Write-Host "📌 前端目标: 预览环境（-Preview）" -ForegroundColor Magenta
+} else {
+    Write-Host "📌 前端目标: 正式环境 (production)" -ForegroundColor Magenta
+}
+Write-Host ""
 $mode = Read-Host "请选择 (1-4，默认 1)"
 
 if ([string]::IsNullOrWhiteSpace($mode)) {
@@ -95,7 +109,16 @@ Write-Host ""
 
 # ============================================================
 # 执行部署
+#
+# -Preview 只对前端 Pages 有意义：两个 Worker 各自只有一个正式环境，
+# 因此 worker 脚本会明确拒绝 -Preview。为避免「以为发的是预览、其实动了线上」，
+# 这里在只跑 Worker 的分支上直接把矛盾点出来并中止。
 # ============================================================
+if ($Preview -and ($mode -eq "1" -or $mode -eq "2")) {
+    Write-Host "❌ -Preview 只适用于前端 Pages（选项 3 / 4）" -ForegroundColor Red
+    Write-Host "   Worker 只有一个正式环境，没有预览环境可发" -ForegroundColor Yellow
+    exit 1
+}
 
 switch ($mode) {
     "1" {
@@ -108,7 +131,7 @@ switch ($mode) {
     }
     "3" {
         # 前端 Pages
-        & "$ScriptDir\deploy-pages.ps1"
+        & "$ScriptDir\deploy-pages.ps1" -Preview:$Preview
     }
     "4" {
         # 全部部署
@@ -131,7 +154,7 @@ switch ($mode) {
         
         Write-Host ""
         Write-Host "【3/3】部署前端 Pages" -ForegroundColor Cyan
-        & "$ScriptDir\deploy-pages.ps1"
+        & "$ScriptDir\deploy-pages.ps1" -Preview:$Preview
         if ($LASTEXITCODE -ne 0) {
             Write-Host "❌ 前端部署失败" -ForegroundColor Red
             exit 1

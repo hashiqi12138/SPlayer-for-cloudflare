@@ -126,13 +126,13 @@ node scripts/probes/probe-unblock-api.cjs http://127.0.0.1:8788
 node scripts/probes/probe-unblock-samples.cjs http://127.0.0.1:8788
 
 # 7. 解锁端到端：经 Pages 拿到直链，实际拉流并校验 CORS / 音频类型
-node scripts/probes/probe-unblock-playable.cjs https://dev.splayer-dvj.pages.dev
+node scripts/probes/probe-unblock-playable.cjs https://splayer-dvj.pages.dev
 
 # 8. 解锁接口耗时采样（跨境链路抖动排查）
 node scripts/probes/probe-unblock-latency.cjs https://ncm-api.liujieahu.workers.dev 3
 
 # 9. 校验线上产物中酷我音源默认已启用
-node scripts/probes/probe-unlock-default.cjs https://dev.splayer-dvj.pages.dev
+node scripts/probes/probe-unlock-default.cjs https://splayer-dvj.pages.dev
 
 # 10. 判定地域限制依据（真实出口 IP vs 请求头），双向实验
 node scripts/probes/probe-kuwo-region-gate.cjs

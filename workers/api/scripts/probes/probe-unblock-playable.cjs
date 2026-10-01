@@ -12,7 +12,7 @@
  */
 const cfg = require('../config.cjs')
 
-const BASE = process.argv[2] || cfg.pagesUrl
+const BASE = process.argv[2] || cfg.pagesProdUrl
 const ORIGIN = BASE
 
 const CASES = [

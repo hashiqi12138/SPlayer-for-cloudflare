@@ -5,6 +5,53 @@
 
 发布流程见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
+## [1.0.4] - 2026-10-01
+
+### 修复
+
+- **前端所有部署都进了预览环境，正式环境从未有过部署**：`deploy.config.json` 里只有
+  一组 `pagesBranch: "dev"` / `pagesUrl`，部署脚本无条件给 `wrangler pages deploy`
+  带上 `--branch=dev`。结果是 Cloudflare 上该项目全部是 Preview 部署，
+  正式域名 `splayer-dvj.pages.dev` 一直没有内容 —— 而脚本每次都打印「部署完成」，
+  从输出上完全看不出来。现在发布目标是**命令行显式选择**的：不带参数发正式
+  （不加 `--branch`，Pages 视为 production），`--preview` 才发预览分支别名。
+- **`/version.json` 的 `dirty` 字段实际上永远是 `true`**，这让它失去意义，
+  而它正是「线上跑的是哪个提交」的核对依据。它原先用 `git status --porcelain`
+  是否为空来判断，而这个判断被两类长期噪音占据：一是**子模块**
+  （补丁本来就写在子模块工作区里，`deps:setup` / `deps:update` 之后必然是脏的，
+  而这两步是发布前的必经流程）；二是**换行符**（`core.autocrlf=true` 的机器上
+  产物以 CRLF 落盘，git 比较时归一化回 LF，于是 `git diff` 为空、`git status`
+  却报「已修改」）。改用 `git diff HEAD --ignore-submodules=all`（比内容）
+  加未跟踪文件来判断。
+- **`generated-routes.js` 在 Windows 上被构建成 CRLF**：产物由上游模块源码拼出，
+  上游文件在 `autocrlf=true` 下是 CRLF，于是同一份源码在 Windows 与 Linux 上
+  构建出两种字节序列 —— 而 `git diff` 会把换行归一化，这个不可复现**恰好被它掩盖**。
+  现在构建时统一归一化成 LF，并新增自检项（生成物必须 LF）。
+- `verify --with-build` 的可复现校验由 `git diff` 改为**与入库 blob 逐字节比较**
+  （`git show HEAD:<path>`）：换行符差异也逃不掉，否则「Windows 产出 CRLF、
+  入库是 LF」会一直被判为通过。
+
+### 变更
+
+- **配置拆分**：`pagesBranch` / `pagesUrl` → `pagesProdUrl`、
+  `pagesPreviewBranch`、`pagesPreviewUrl` 三组键，正式与预览的地址各自独立，
+  不再共用一个「碰巧写了什么就发到哪」的值。`verify` 的取值校验同步更新。
+- **worker 脚本明确拒绝 `--preview`**（bash 与 PowerShell 两侧）：Worker 不存在
+  分支别名、只有一个正式环境。静默忽略会让使用者以为「我发的是预览」，
+  实际却改了线上 worker；直接报错把误解挡在部署之前。
+- `deploy-all` 同理：只选 Worker（`--mode=1|2` / 菜单 1、2）时给 `--preview` 直接报错；
+  选前端时把目标透传给 Pages 脚本，不再让 `--preview` 被下游默默吞掉。
+- `scripts/deploy.mjs` 补上参数映射：`--preview` → `-Preview`，
+  `--prod` 在 PowerShell 侧等价于「不带 `-Preview`」。
+
+### 新增
+
+- 部署脚本自检增加「部署目标」一节：`--help` 是否列出 `--preview`、默认目标是正式、
+  `--preview` 能切到预览、`--prod` 能切回正式、两个 worker 脚本拒绝 `--preview`、
+  以及 `--preview` 配前端时不被误拦。
+- 文档补齐「正式 / 预览」两条路径：地址对照表、命令、以及**回滚是分环境的**
+  （Pages 的 Rollback 按部署生效，正式与预览互不影响）。
+
 ## [1.0.3] - 2026-10-01
 
 > **原因更正（1.0.1）**：1.0.1 里把 Linux 任务的失败归因为「Ubuntu runner 的

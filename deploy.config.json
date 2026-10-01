@@ -2,6 +2,7 @@
   "apiWorkerUrl": "https://ncm-api.liujieahu.workers.dev",
   "proxyWorkerUrl": "https://music-proxy.liujieahu.workers.dev",
   "pagesProject": "splayer",
-  "pagesBranch": "dev",
-  "pagesUrl": "https://dev.splayer-dvj.pages.dev"
+  "pagesProdUrl": "https://splayer-dvj.pages.dev",
+  "pagesPreviewBranch": "dev",
+  "pagesPreviewUrl": "https://dev.splayer-dvj.pages.dev"
 }

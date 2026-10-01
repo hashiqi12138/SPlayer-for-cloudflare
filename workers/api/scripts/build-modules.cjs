@@ -307,7 +307,13 @@ export const routeStats = {
     "import createOption from './option.js';\nimport { createRequest } from './ncm-request-handler.js';",
   )
 
-  fs.writeFileSync(OUTPUT_FILE, out, 'utf-8')
+  // 统一成 LF 再落盘。
+  //
+  // 产物内容是「上游模块源码 + 本文件里的模板」拼出来的，其中上游文件在
+  // `core.autocrlf=true` 的机器上可能是 CRLF。若原样写出，这个入库产物在
+  // Windows 上就是 CRLF、在 Linux 上是 LF —— 同一份源码构建出两种字节序列，
+  // 「构建可复现」就名存实亡（而且 git 比对时会归一化换行，根本发现不了）。
+  fs.writeFileSync(OUTPUT_FILE, out.replace(/\r\n/g, '\n'), 'utf-8')
 
   console.log(`已转译: ${entries.length} 个模块`)
   console.log(`已跳过: ${skipped.length} 个`)
