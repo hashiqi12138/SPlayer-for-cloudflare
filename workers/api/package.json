@@ -4,7 +4,7 @@
   "description": "api-enhanced adapted for Cloudflare Workers",
   "type": "module",
   "dependencies": {
-    "@neteasecloudmusicapienhanced/unblockmusic-utils": "^0.4.4",
+    "@neteasecloudmusicapienhanced/unblockmusic-utils": "^0.4.5",
     "axios": "^1.20.0",
     "crypto-js": "^4.2.0",
     "dotenv": "^17.4.2",
