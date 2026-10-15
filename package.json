@@ -35,7 +35,7 @@
     "hooks:install": "node scripts/install-hooks.mjs"
   },
   "devDependencies": {
-    "prettier": "^3.3.3",
-    "wrangler": "^4.144.0"
+    "prettier": "^3.9.10",
+    "wrangler": "^4.149.0"
   }
 }
