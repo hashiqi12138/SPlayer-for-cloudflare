@@ -25,7 +25,7 @@ index da32b36e..d3b43456 100644
        // 如果指定了非官方源，直接走解锁流程
        if (forceSource && forceSource !== "auto") {
 diff --git a/src/stores/migrations/settingMigrations.ts b/src/stores/migrations/settingMigrations.ts
-index a59f736a..b491d8ec 100644
+index a59f736a..6d1d1a83 100644
 --- a/src/stores/migrations/settingMigrations.ts
 +++ b/src/stores/migrations/settingMigrations.ts
 @@ -6,7 +6,7 @@ import type { SettingState } from "../setting";
@@ -37,7 +37,7 @@ index a59f736a..b491d8ec 100644
  
  /**
   * 迁移函数类型
-@@ -198,4 +198,34 @@ export const settingMigrations: Record<number, MigrationFunction> = {
+@@ -198,4 +198,46 @@ export const settingMigrations: Record<number, MigrationFunction> = {
        songUnlockServer: servers.filter((s) => (s.key as string) !== "gequbao"),
      };
    },
@@ -49,27 +49,39 @@ index a59f736a..b491d8ec 100644
 +    // 酷我 convert_url2 返回空响应。保持原样会让每次播放都为一个必然失败的源
 +    // 白等一次往返。
 +    //
++    // 同时要把 useSongUnlock 打开：上游默认是 true，而本项目此前的补丁把它改成了
++    // false（当时解锁在 CF 出口不可用）。老用户本地存的就是 false，
++    // 光改默认值改不到他们 —— 不在这里显式打开，界面上「音乐解锁」仍是关的，
++    // 灰歌永远解锁不了。
++    //
 +    // 只改「仍是旧默认值」的情况：用户手动改过的配置不动，否则就是覆盖用户选择。
 +    const servers = state.songUnlockServer;
-+    if (!Array.isArray(servers)) return {};
++    const unlockOff = state.useSongUnlock === false;
 +
-+    const isOldDefault =
-+      servers.length === 3 &&
-+      servers.every((s) => {
-+        if (s.key === SongUnlockServer.BODIAN) return s.enabled === true;
-+        if (s.key === SongUnlockServer.NETEASE) return s.enabled === true;
-+        if (s.key === SongUnlockServer.KUWO) return s.enabled === false;
-+        return true;
-+      });
-+    if (!isOldDefault) return {};
++    const isOldServerDefault =
++      !Array.isArray(servers) ||
++      (servers.length === 3 &&
++        servers.every((s) => {
++          if (s.key === SongUnlockServer.BODIAN) return s.enabled === true;
++          if (s.key === SongUnlockServer.NETEASE) return s.enabled === true;
++          if (s.key === SongUnlockServer.KUWO) return s.enabled === false;
++          return true;
++        }));
 +
-+    return {
-+      songUnlockServer: [
++    const patch: Partial<SettingState> = {};
++
++    // 旧补丁的默认值就是 false，所以 false 等价于「用户没动过」
++    if (unlockOff) patch.useSongUnlock = true;
++
++    if (isOldServerDefault) {
++      patch.songUnlockServer = [
 +        { key: SongUnlockServer.NETEASE, enabled: true },
 +        { key: SongUnlockServer.BODIAN, enabled: false },
 +        { key: SongUnlockServer.KUWO, enabled: false },
-+      ],
-+    };
++      ];
++    }
++
++    return patch;
 +  },
  };
 diff --git a/src/stores/setting.ts b/src/stores/setting.ts
