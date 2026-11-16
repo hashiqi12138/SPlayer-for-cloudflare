@@ -283,7 +283,7 @@ DEPLOY_SHELL=bash node scripts/deploy.mjs pages   # 在 Windows 上强制走 bas
 
 | 限制 | 说明 |
 |---|---|
-| 解锁（解灰）功能 | **默认关闭**。三大音源均按出口 IP 限制，Cloudflare 出口无法真正生效；境内出口可用。开启方式见 `workers/api/ADAPTATION_TODO.md` |
+| 解锁（解灰）音源 | **已开启，但只启用 netease 一个源**。Cloudflare 出口实测：GD 音乐台 11/12 命中；波点恒定回 `20018`，酷我返回空响应，两者已关闭。开关与验证方式见 [DEPLOY.md](./DEPLOY.md#q-歌曲解灰多音源怎么开哪些源真的能用) |
 | 网易云 -462 风控 | Cloudflare 出口 IP 可能触发人机验证，属环境问题 |
 | 文件上传类接口 | Workers 无临时文件系统，`ENABLE_FILE_UPLOAD=false` |
 | `xeapi` / `neapi` 加密 | 依赖 Node 版 X25519 ECDH，未实现，请求降级为 eapi |

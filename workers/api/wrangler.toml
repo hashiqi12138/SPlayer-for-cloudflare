@@ -18,11 +18,18 @@ CHECK_VERSION = "false"
 # 禁用文件上传（Workers 不支持临时文件）
 ENABLE_FILE_UPLOAD = "false"
 
-# 解锁（解灰）总开关：不在此处声明，默认由代码取 false（即关闭）。
-# 实测三大音源均按出口 IP 限制（酷我下发占位片段、波点 407、网易云 403），
-# Cloudflare 出口无法真正生效，且会拖慢不可用歌曲的播放。
-# 部署到中国大陆出口后，取消下面这行注释并重新部署即可恢复，无需改代码。
-# ENABLE_UNBLOCK = "true"
+# 解锁（解灰）总开关
+#
+# 实测结论（Cloudflare 出口，2026-11）：
+#   - netease（GD 音乐台聚合接口）：可用，抽样 11/12 命中，直链音频体积正常
+#   - kuwo：不可用，convert_url2 返回空响应
+#   - bodian：不可用，恒定回 20018「没有解锁付费歌曲」
+# 因此只开 netease 一个音源，另外两个保持关闭：开了也只会让前端白等一次请求，
+# 还会拖慢不可用歌曲的播放。
+ENABLE_UNBLOCK = "true"
+
+# 启用的音源（逗号分隔）。代码里按此过滤，未列出的源即使被请求也直接回 404。
+ENABLE_UNBLOCK_SOURCES = "netease"
 
 # 生产环境
 [env.production]

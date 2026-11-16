@@ -5,6 +5,31 @@
 
 发布流程见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
+## [1.0.7] - 2026-11-16
+
+### 新增
+
+- **开启多音源解锁（解灰），但只放行实测可用的源**。在 Cloudflare 出口逐个跑完整链路
+  （搜索 → 匹配 → 取直链 → 探音频真实体积）后的结论：
+
+  | 音源 | 结果 | 启用 |
+  |---|---|---|
+  | netease（GD 音乐台） | 抽样 11/12 命中，直链 20–115MB 正常音频 | ✅ |
+  | bodian（波点） | 恒定回 `20018 没有解锁付费歌曲` | ❌ |
+  | kuwo（酷我） | `convert_url2` 返回空响应 | ❌ |
+
+- 新增 `ENABLE_UNBLOCK_SOURCES` 单源白名单。未列出的源直接回
+  `{code:404, reason:"source-disabled"}`，不去打上游 —— 否则前端会为必然失败的源
+  白等一次往返。`/api/unblock` 额外返回 `enabledSources`，前端可据此判断。
+
+### 修复
+
+- **Web 版永远进不了解锁分支**。上游 `canUnlock = isElectron && ...` 是因为解锁依赖
+  Electron 内嵌的 fastify 服务；本部署把解锁接口放在 API Worker（`/api/unblock`）上，
+  浏览器同样可用。去掉这个限制后 `getUnlockSongUrl` 才会被调用。
+- 前端默认音源改为只开网易云，并加 schema 13 迁移：仅调整仍是旧默认值的用户，
+  手动改过配置的不动。
+
 ## [1.0.6] - 2026-11-16
 
 ### 修复

@@ -13,7 +13,12 @@ import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 
 import { buildProxyUrl } from '../src/unblock/audio-proxy.js'
-import { buildDebugHeaders, buildMatchInfo, isUnblockEnabled } from '../src/unblock/index.js'
+import {
+  buildDebugHeaders,
+  buildMatchInfo,
+  isSourceEnabled,
+  isUnblockEnabled,
+} from '../src/unblock/index.js'
 
 afterEach(() => {
   delete globalThis.CF_ENV
@@ -36,6 +41,34 @@ describe('isUnblockEnabled', () => {
 
     globalThis.CF_ENV = {}
     assert.equal(isUnblockEnabled(), false)
+  })
+})
+
+describe('isSourceEnabled', () => {
+  it('总开关关闭时任何音源都不可用', () => {
+    globalThis.CF_ENV = { ENABLE_UNBLOCK_SOURCES: 'netease' }
+    assert.equal(isSourceEnabled('netease'), false)
+  })
+
+  it('总开关打开且未配置白名单时，默认只放 netease', () => {
+    globalThis.CF_ENV = { ENABLE_UNBLOCK: 'true' }
+    assert.equal(isSourceEnabled('netease'), true)
+    // 波点与酷我在 Cloudflare 出口拿不到直链，不该默认放行
+    assert.equal(isSourceEnabled('bodian'), false)
+    assert.equal(isSourceEnabled('kuwo'), false)
+  })
+
+  it('按 ENABLE_UNBLOCK_SOURCES 白名单过滤，大小写与空格不敏感', () => {
+    globalThis.CF_ENV = { ENABLE_UNBLOCK: 'true', ENABLE_UNBLOCK_SOURCES: ' Netease , KUWO ' }
+    assert.equal(isSourceEnabled('netease'), true)
+    assert.equal(isSourceEnabled('kuwo'), true)
+    assert.equal(isSourceEnabled('bodian'), false)
+  })
+
+  it('空字符串视为未配置，回落到默认值', () => {
+    globalThis.CF_ENV = { ENABLE_UNBLOCK: 'true', ENABLE_UNBLOCK_SOURCES: '   ' }
+    assert.equal(isSourceEnabled('netease'), true)
+    assert.equal(isSourceEnabled('bodian'), false)
   })
 })
 

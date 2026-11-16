@@ -90,16 +90,39 @@ export function buildDebugHeaders(query = {}) {
 /**
  * 解锁功能总开关（wrangler.toml 的 ENABLE_UNBLOCK，默认 false）。
  *
- * 实测三大音源均按出口 IP 限制（酷我下发占位片段、波点 407、网易云 403），
- * 在 Cloudflare 出口无法真正生效，因此默认关闭：前端不再尝试，
- * 后端也不再对外提供音频代理入口。
+ * 实测结论（Cloudflare 出口，2026-11）：
+ *   - netease（GD 音乐台聚合接口）可用，抽样 11/12 命中，直链音频体积正常
+ *   - kuwo 不可用：convert_url2 返回空响应
+ *   - bodian 不可用：恒定回 20018「没有解锁付费歌曲」
  *
- * 若部署到中国大陆出口，把 ENABLE_UNBLOCK 改为 "true" 重新部署即可恢复，
- * 无需改动任何代码。
+ * 因此默认只启用 netease。具体开哪几个由 ENABLE_UNBLOCK_SOURCES 决定，
+ * 未列出的源即使被请求也直接回 404 —— 否则前端会为一个必然失败的源白等一次往返。
  */
 // 导出供 workers/api/test 的离线单测使用（默认关闭这件事值得有回归测试守着）
 export function isUnblockEnabled() {
   return String(globalThis.CF_ENV?.ENABLE_UNBLOCK ?? 'false') === 'true'
+}
+
+/** 默认启用的音源；没有显式配置时用它 */
+const DEFAULT_ENABLED_SOURCES = ['netease']
+
+/**
+ * 判断某个音源是否启用。
+ *
+ * 两层：总开关 + 单源白名单。总开关关闭时全部不可用（连音频代理入口都不开），
+ * 总开关打开时只看白名单。
+ */
+export function isSourceEnabled(source) {
+  if (!isUnblockEnabled()) return false
+  const raw = globalThis.CF_ENV?.ENABLE_UNBLOCK_SOURCES
+  const list =
+    typeof raw === 'string' && raw.trim()
+      ? raw
+          .split(',')
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean)
+      : DEFAULT_ENABLED_SOURCES
+  return list.includes(String(source).toLowerCase())
 }
 
 export function registerUnblockRoutes(app) {
@@ -112,6 +135,11 @@ export function registerUnblockRoutes(app) {
   const handler = (source, fn) => async (req, res) => {
     if (!isUnblockEnabled()) {
       res.status(200).json({ code: 404, url: null, reason: 'disabled', source })
+      return
+    }
+    // 单源白名单：未启用的源直接回，不去打上游
+    if (!isSourceEnabled(source)) {
+      res.status(200).json({ code: 404, url: null, reason: 'source-disabled', source })
       return
     }
 
@@ -163,7 +191,12 @@ export function registerUnblockRoutes(app) {
   }
 
   app.get('/api/unblock', (_req, res) => {
-    res.json({ ...UNBLOCK_INFO, enabled: isUnblockEnabled() })
+    res.json({
+      ...UNBLOCK_INFO,
+      enabled: isUnblockEnabled(),
+      // 明确告诉前端哪几个源真的可用，避免它为必然失败的源白等一次往返
+      enabledSources: UNBLOCK_INFO.sources.filter((s) => isSourceEnabled(s)),
+    })
   })
 
   // 网易云按歌曲 ID 走聚合接口

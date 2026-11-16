@@ -430,6 +430,41 @@ async function runTests() {
       }
     }
 
+    // 先取服务信息，拿到部署侧真实启用的音源列表。
+    // 用例不能假设「三个源都开」：本部署只放行 netease，其余两个被白名单挡掉是
+    // 预期行为（source-disabled），不是缺陷。按实际 enabledSources 决定预期。
+    let enabledSources = null
+    try {
+      const res = await fetch(BASE_URL + '/api/unblock', { signal: AbortSignal.timeout(30000) })
+      const info = JSON.parse(await res.text())
+      if (info?.enabled === true && Array.isArray(info.enabledSources)) {
+        enabledSources = info.enabledSources
+      } else if (info?.enabled === false) {
+        enabledSources = []
+      }
+    } catch (e) {
+      // 取不到就退回旧行为：允许环境限制
+    }
+
+    /** 该音源是否被部署侧启用；enabledSources 为 null 表示未知 */
+    const sourceEnabled = (name) => (enabledSources === null ? null : enabledSources.includes(name))
+
+    /**
+     * 未启用的音源应回 source-disabled，且不去打上游。
+     * 这是一条正向断言：白名单失效会让前端为必然失败的源白等一次往返。
+     */
+    const expectSourceDisabled = (name) => (j) => {
+      if (sourceEnabled(name) === true) {
+        return evalUnblockResult(j, { allowEnvBlock: true })
+      }
+      if (j.code === 404 && j.reason === 'source-disabled') return { pass: true }
+      if (j.reason === 'disabled') return { pass: true, blocked: true, msg: '解锁已关闭' }
+      return {
+        pass: false,
+        msg: `期望 404/source-disabled，实际 code=${j.code} reason=${j.reason}`,
+      }
+    }
+
     const checks = [
       {
         name: '解锁-服务信息',
@@ -442,18 +477,23 @@ async function runTests() {
       {
         name: '解锁-酷我',
         path: '/api/unblock/kuwo?keyword=' + encodeURIComponent('灰姑娘-梁咏琪'),
-        // 境内出口可拿到真实完整歌曲；Cloudflare 出口会被上游下发占位片段，
-        // 接口已识别并拒绝（reason=stub-audio），归入受限而非失败。
-        verify: (j) => evalUnblockResult(j, { allowEnvBlock: true }),
+        // 本部署默认关闭（convert_url2 在 CF 出口返回空响应）。
+        // 若将来打开，境内出口可拿到完整歌曲，CF 出口则被下发占位片段，
+        // 接口会识别并拒绝（reason=stub-audio），归入受限而非失败。
+        verify: expectSourceDisabled('kuwo'),
       },
       {
         name: '解锁-音频代理可播放',
-        path: '/api/unblock/kuwo?keyword=' + encodeURIComponent('灰姑娘-梁咏琪'),
+        path: '/api/unblock/netease?id=33894312',
         // 前端 AudioElementPlayer 强制 crossOrigin="anonymous"，
-        // 酷我等音源直链不含 CORS 头，必须经同源代理才能播放。
+        // 音源直链不含 CORS 头，必须经同源代理才能播放。
         // 这里实际拉一次流，同时校验音频类型与 CORS 头。
+        // 用 netease 源是因为它是本部署唯一启用的源；换源会自动跟随 enabledSources。
         verify: async (j) => {
           if (j.code !== 200 || !j.url) {
+            if (j.reason === 'source-disabled') {
+              return { pass: true, blocked: true, msg: 'netease 源未启用，跳过拉流校验' }
+            }
             // 上游未给出有效直链时不具备拉流条件，按环境限制归类
             if (ENV_REASONS.has(j.reason)) {
               return {
@@ -500,13 +540,13 @@ async function runTests() {
       {
         name: '解锁-波点',
         path: '/api/unblock/bodian?keyword=' + encodeURIComponent('灰姑娘-梁咏琪'),
-        // 波点对 Cloudflare 境外出口会返回「仅限中国大陆地区使用」
-        verify: (j) => evalUnblockResult(j, { allowEnvBlock: true }),
+        // 本部署默认关闭（恒定回 20018「没有解锁付费歌曲」）。
+        // 若打开，境外出口会返回「仅限中国大陆地区使用」，归入受限。
+        verify: expectSourceDisabled('bodian'),
       },
       {
         name: '解锁-网易云',
         path: '/api/unblock/netease?id=33894312',
-        // 聚合接口对 Cloudflare 出口返回 403
         verify: (j) => evalUnblockResult(j, { allowEnvBlock: true }),
       },
       {
@@ -519,6 +559,11 @@ async function runTests() {
           // 部署侧关闭解锁时，参数校验会被总开关短路，属预期行为
           if (j.reason === 'disabled') {
             return { pass: true, blocked: true, msg: '解锁已关闭' }
+          }
+          // 单源白名单在参数校验之前生效：未启用的源直接回 source-disabled，
+          // 这也是预期行为（空关键词校验只在源真的启用时才有意义）
+          if (j.reason === 'source-disabled') {
+            return { pass: true, blocked: true, msg: 'kuwo 源未启用' }
           }
           return {
             pass: false,

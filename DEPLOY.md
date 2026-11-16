@@ -401,16 +401,48 @@ A: 先看错误类型：
 - **模块找不到**: 某些依赖不兼容 Workers，需要替换或 polyfill
 - **fs 相关错误**: 动态加载模块可能有问题，需要改为静态导入
 
-### Q: 歌曲解灰功能能用吗？
+### Q: 歌曲解灰（多音源）怎么开？哪些源真的能用？
 
-A: **默认关闭，且在 Cloudflare 出口无法真正生效**。实测三大音源（网易云 / 酷我 / 波点）
-都按**真实 TCP 出口 IP** 判断地区，伪造请求头无效——酷我会下发一个固定的 15.6KB 占位音频
-（所有歌曲同一资源），波点返回 407，网易云返回 403。
-在 Cloudflare 出口拿到的是海外 IP，因此解锁拿不到可用音源。
+A: 已开启，但**只启用 netease 一个源**。三个源在 Cloudflare 出口的实测结论（2026-11）：
 
-部署到中国大陆出口后，把 `workers/api/wrangler.toml` 的 `ENABLE_UNBLOCK` 设为 `"true"`
-重新部署即可恢复，无需改动代码。前后端的实现与排查过程见
-`workers/api/ADAPTATION_TODO.md`。
+| 音源 | 实现 | 实测结果 | 是否启用 |
+|---|---|---|---|
+| netease | GD 音乐台聚合接口 `music-api.gdstudio.xyz` | 抽样 11/12 命中，直链音频体积正常（20–115MB） | ✅ |
+| bodian | 波点 `bd-api.kuwo.cn` | 恒定回 `20018 没有解锁付费歌曲` | ❌ |
+| kuwo | 酷我 `mobi.kuwo.cn` 的 `convert_url2` | 返回空响应，取不到直链 | ❌ |
+
+开法（两个变量，都在 `workers/api/wrangler.toml`）：
+
+```toml
+ENABLE_UNBLOCK = "true"
+ENABLE_UNBLOCK_SOURCES = "netease"   # 逗号分隔；留空则默认只放 netease
+```
+
+`ENABLE_UNBLOCK_SOURCES` 是**单源白名单**：未列出的源即使被请求也直接回
+`{code:404, reason:"source-disabled"}`，不会去打上游。这一点很重要——
+否则前端会为一个必然失败的源白等一次往返，播放起播明显变慢。
+
+前端还有两处必须配套（都已写进 `patches/splayer-frontend.patch`）：
+
+1. **去掉 `isElectron` 限制**。上游的 `canUnlock = isElectron && ...` 是因为解锁依赖
+   Electron 内嵌的 fastify 服务；本部署把解锁接口放到了 API Worker（`/api/unblock`），
+   Web 版同样可用。不去掉这行，浏览器里永远进不了解锁分支。
+2. **调默认音源顺序**。默认值从「波点开 / 网易云开 / 酷我关」改成只开网易云，
+   并加了 schema 13 迁移：只改仍是旧默认值的用户，手动改过的不动。
+
+验证方式：
+
+```bash
+curl https://<worker>/api/unblock                      # 看 enabled 与 enabledSources
+curl "https://<worker>/api/unblock/netease?id=347230"  # 应返回 code:200 + 同源代理路径
+```
+
+拿到的是 `/api/unblock/audio/...` 同源路径而不是原始 CDN 直链，因为前端音频元素
+强制 `crossOrigin="anonymous"`，而音源 CDN 不返回 CORS 头；代理层顺带处理 Range
+（拖动进度条）。
+
+若之后部署到中国大陆出口，可以把 `ENABLE_UNBLOCK_SOURCES` 改成 `"netease,kuwo,bodian"`
+再验证一次——波点和酷我在境内出口的表现会不一样。
 
 ### Q: 怎么确认线上跑的是哪个版本？
 

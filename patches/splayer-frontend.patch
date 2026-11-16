@@ -1,13 +1,94 @@
-﻿diff --git a/src/stores/setting.ts b/src/stores/setting.ts
-index 4594ba7..72bb646 100644
+diff --git a/src/core/player/SongManager.ts b/src/core/player/SongManager.ts
+index da32b36e..d3b43456 100644
+--- a/src/core/player/SongManager.ts
++++ b/src/core/player/SongManager.ts
+@@ -429,7 +429,10 @@ class SongManager {
+       const songId = nextSong.type === "radio" ? nextSong.dj?.id : nextSong.id;
+       if (!songId) return;
+       // 是否可解锁
+-      const canUnlock = isElectron && nextSong.type !== "radio" && settingStore.useSongUnlock;
++      // 上游这里额外要求 isElectron，因为解锁依赖 Electron 内嵌的 fastify 服务。
++      // 本部署把解锁接口放到了 API Worker（/api/unblock），Web 版同样可用，
++      // 因此去掉这个限制，否则浏览器里永远进不了解锁分支。
++      const canUnlock = nextSong.type !== "radio" && settingStore.useSongUnlock;
+       // 先请求官方地址
+       const { url: officialUrl, isTrial, quality } = await this.getOnlineUrl(songId, false);
+       if (officialUrl && !isTrial) {
+@@ -530,7 +533,8 @@ class SongManager {
+     // 在线获取
+     try {
+       // 是否可解锁
+-      const canUnlock = isElectron && song.type !== "radio" && settingStore.useSongUnlock;
++      // 同 prefetchNextSong：解锁接口在 API Worker 上，Web 版也能用
++      const canUnlock = song.type !== "radio" && settingStore.useSongUnlock;
+ 
+       // 如果指定了非官方源，直接走解锁流程
+       if (forceSource && forceSource !== "auto") {
+diff --git a/src/stores/migrations/settingMigrations.ts b/src/stores/migrations/settingMigrations.ts
+index a59f736a..b491d8ec 100644
+--- a/src/stores/migrations/settingMigrations.ts
++++ b/src/stores/migrations/settingMigrations.ts
+@@ -6,7 +6,7 @@ import type { SettingState } from "../setting";
+ /**
+  * 当前设置 Schema 版本号
+  */
+-export const CURRENT_SETTING_SCHEMA_VERSION = 12;
++export const CURRENT_SETTING_SCHEMA_VERSION = 13;
+ 
+ /**
+  * 迁移函数类型
+@@ -198,4 +198,34 @@ export const settingMigrations: Record<number, MigrationFunction> = {
+       songUnlockServer: servers.filter((s) => (s.key as string) !== "gequbao"),
+     };
+   },
++  13: (state) => {
++    // 按 Cloudflare 出口的实测结果调默认解锁源
++    //
++    // 老用户本地持久化的是「波点开、网易云开、酷我关」，而实测在 Cloudflare 出口
++    // 只有网易云（GD 音乐台）能拿到直链：波点恒定回 20018「没有解锁付费歌曲」，
++    // 酷我 convert_url2 返回空响应。保持原样会让每次播放都为一个必然失败的源
++    // 白等一次往返。
++    //
++    // 只改「仍是旧默认值」的情况：用户手动改过的配置不动，否则就是覆盖用户选择。
++    const servers = state.songUnlockServer;
++    if (!Array.isArray(servers)) return {};
++
++    const isOldDefault =
++      servers.length === 3 &&
++      servers.every((s) => {
++        if (s.key === SongUnlockServer.BODIAN) return s.enabled === true;
++        if (s.key === SongUnlockServer.NETEASE) return s.enabled === true;
++        if (s.key === SongUnlockServer.KUWO) return s.enabled === false;
++        return true;
++      });
++    if (!isOldDefault) return {};
++
++    return {
++      songUnlockServer: [
++        { key: SongUnlockServer.NETEASE, enabled: true },
++        { key: SongUnlockServer.BODIAN, enabled: false },
++        { key: SongUnlockServer.KUWO, enabled: false },
++      ],
++    };
++  },
+ };
+diff --git a/src/stores/setting.ts b/src/stores/setting.ts
+index 4594ba7a..67428964 100644
 --- a/src/stores/setting.ts
 +++ b/src/stores/setting.ts
-@@ -525,7 +525,7 @@ export const useSettingStore = defineStore("setting", {
+@@ -525,10 +525,14 @@ export const useSettingStore = defineStore("setting", {
      songVolumeFadeTime: 300,
      enableReplayGain: false,
      replayGainMode: "track",
--    useSongUnlock: true,
-+    useSongUnlock: false,
++    // 默认开启：Cloudflare 出口实测 netease（GD 音乐台）可用，抽样命中 11/12
+     useSongUnlock: true,
++    // 只留实测可用的源。波点（恒定回 20018「没有解锁付费歌曲」）与酷我
++    // （convert_url2 返回空响应）在 Cloudflare 出口都拿不到直链，
++    // 留着只会让前端为必然失败的源白等一次往返。仍可在「音源配置」里手动打开。
      songUnlockServer: [
-       { key: SongUnlockServer.BODIAN, enabled: true },
+-      { key: SongUnlockServer.BODIAN, enabled: true },
        { key: SongUnlockServer.NETEASE, enabled: true },
++      { key: SongUnlockServer.BODIAN, enabled: false },
+       { key: SongUnlockServer.KUWO, enabled: false },
+     ],
+     countDownShow: true,
