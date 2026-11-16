@@ -287,6 +287,20 @@ DEPLOY_SHELL=bash node scripts/deploy.mjs pages   # 在 Windows 上强制走 bas
 | 网易云 -462 风控 | Cloudflare 出口 IP 可能触发人机验证，属环境问题 |
 | 文件上传类接口 | Workers 无临时文件系统，`ENABLE_FILE_UPLOAD=false` |
 | `xeapi` / `neapi` 加密 | 依赖 Node 版 X25519 ECDH，未实现，请求降级为 eapi |
+| 下载直链 `song/download/url/v1` | 需登录且需会员权益，未登录恒回 `code -105`，属上游行为 |
+
+## 播放链路为什么要绕开 fetch
+
+网易云对 `song/enhance/player|download/url` 系列按出口 IP 判地区，没有中国大陆
+`X-Real-IP` 就回 `code 404`，表现是「能搜到歌、点播放没声音」。
+
+而 Cloudflare Workers 的 `fetch()` 出站子请求**会摘掉 `x-real-ip`**
+（[官方文档](https://developers.cloudflare.com/rules/transform/request-header-modification/)），
+且网易云只认这一个头（`X-Forwarded-For` / `True-Client-IP` / `CF-Connecting-IP` 实测均无效）。
+因此播放链路走 `workers/api/src/transport.js`：用 `cloudflare:sockets` 手写
+HTTP/1.1 报文、TLS 直连，绕开 fetch 的头部清洗。其余接口继续用 fetch。
+
+细节与排查方式见 [DEPLOY.md 的常见问题](./DEPLOY.md#q-为什么线上能搜到歌点播放却没声音重要)。
 
 ## 文档索引
 

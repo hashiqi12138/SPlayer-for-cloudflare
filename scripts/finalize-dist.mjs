@@ -128,12 +128,48 @@ if (missing.length) {
   fail(`构建产物缺少必需文件：${missing.join(', ')}`)
 }
 
+// 3.1 API 地址是否真的编进了前端
+//
+// 真实事故：.env 是在构建**之后**才由 prepare-pages.mjs 写出来的，于是
+// electron-vite 打包时 import.meta.env 是空对象，`String(import.meta.env["VITE_API_URL"])`
+// 被编译成 `String({}.VITE_API_URL)` → 运行时得到字符串 "undefined"，
+// 前端所有接口都发到 https://<页面域名>/undefined/song/detail 上。
+// 页面能打开、能渲染，只是所有数据都空 —— 从界面完全看不出是构建顺序问题。
+//
+// 这里直接扫产物 JS：既确认目标地址在，也确认没有残留 `{}.VITE_API_URL` 这种空 env。
+const expectedApiUrl = process.env.API_URL || '/api/netease'
+const assetsDir = path.join(OUTPUT_DIR, 'assets')
+let sawApiUrl = false
+let sawEmptyEnv = false
+
+if (fs.existsSync(assetsDir)) {
+  for (const name of fs.readdirSync(assetsDir)) {
+    if (!name.endsWith('.js')) continue
+    const text = fs.readFileSync(path.join(assetsDir, name), 'utf8')
+    if (text.includes(expectedApiUrl)) sawApiUrl = true
+    if (/\{\s*\}\s*\.\s*VITE_/.test(text)) sawEmptyEnv = true
+  }
+}
+
+if (sawEmptyEnv) {
+  fail(
+    '产物里出现空 env（形如 {}.VITE_API_URL），说明构建时 .env 还没生成',
+    `请先跑 prepare-pages.mjs 再构建；本次期望的 VITE_API_URL 是 ${expectedApiUrl}`,
+  )
+}
+if (!sawApiUrl) {
+  fail(
+    `产物里找不到 API 地址 ${expectedApiUrl}`,
+    '前端 baseURL 会是 undefined，所有接口都会 404；请确认构建前 .env 已写入 VITE_API_URL',
+  )
+}
+
 console.log(`  ✅ Pages 配置已进入产物（${copied} 个文件）`)
 console.log(
   `  ✅ version.json：${info.version} @ ${info.commitShort || 'unknown'}` +
     `${dirty ? '（工作区有未提交改动）' : ''}`,
 )
-console.log(`  ✅ 产物自检通过（${REQUIRED_IN_OUTPUT.join(' / ')}）`)
+console.log(`  ✅ 产物自检通过（${REQUIRED_IN_OUTPUT.join(' / ')}，API 地址 ${expectedApiUrl}）`)
 if (!info.commit) {
   console.log('  ⚠️  取不到 git 提交号：请确认当前目录仍是 git 仓库')
 }

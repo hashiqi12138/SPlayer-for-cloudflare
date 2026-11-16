@@ -1,6 +1,6 @@
 {
   "name": "splayer-cloudflare",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "description": "SPlayer + api-enhanced 全 Cloudflare 部署方案",
   "license": "AGPL-3.0-or-later",
@@ -35,7 +35,7 @@
     "hooks:install": "node scripts/install-hooks.mjs"
   },
   "devDependencies": {
-    "prettier": "^3.3.3",
-    "wrangler": "^4.144.0"
+    "prettier": "^3.10.1",
+    "wrangler": "^4.163.0"
   }
 }

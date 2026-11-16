@@ -342,6 +342,58 @@ splayer-cloudflare/
 
 ## 常见问题
 
+### Q: 为什么线上能搜到歌、点播放却没声音？（重要）
+
+A: 这是**网易云的出口 IP 地区门禁**，与前端无关。
+
+网易云对 `song/enhance/player/url` 与 `song/enhance/download/url` 系列做地区判定：
+请求里若没有可信的中国大陆 IP，就回 `code 404`（`data[0].url` 为 null），
+表现是歌曲列表、封面、歌词全部正常，只有一按播放就静默失败。
+
+上游 api-enhanced 的对策是在 `X-Real-IP` 里塞一个中国 IP（`server.js` 的
+`randomCNIP` / `global.cnIp`）。这个头**必须真的送到网易云**，而这里有两道坎：
+
+1. **Cloudflare Workers 的 `fetch()` 出站子请求会摘掉 `x-real-ip`**
+   （[官方文档](https://developers.cloudflare.com/rules/transform/request-header-modification/)：
+   Cloudflare removes the `x-real-ip` header before the request reaches your origin
+   server, including when a Worker sets it on a `fetch()` subrequest）。
+   实测 `X-Forwarded-For` / `True-Client-IP` / `CF-Connecting-IP` 一律无效，
+   网易云只认 `X-Real-IP` 这一个头。
+2. 所以播放链路改走 `cloudflare:sockets` 手写 HTTP/1.1 报文（`workers/api/src/transport.js`），
+   TLS 直连不经 fetch 的头部清洗。
+
+配套的三处实现：
+
+- `workers/api/src/transport.js`：socket 传输，只在播放链路启用（其余接口继续用 fetch，
+  没必要自维护协议栈）；本地 `wrangler dev` 的 workerd 对 sockets 支持不完整，
+  失败自动回落 fetch，不影响本地开发。
+- `workers/api/src/ncm-request-handler.js` 的 `resolveRealIP()`：播放类接口直接带中国 IP 出门；
+  非播放接口仍用访客真实 IP（个性化推荐才准）。显式 `?realIP=` / `?randomCNIP=true` 仍然有效。
+- `workers/api/src/shims/util.js` 的 `generateRandomChineseIP()`：改用实测可用的
+  IP 段白名单。原来随机 `116.25~94.x.x`，其中 116.90 以上会被判成海外直接 404。
+
+排查方式：`/song/url/v1?id=347230&level=exhigh` 看 `data[0].url` 是否为空；
+带 `&realIP=223.104.3.1` 对比即可确认是不是这个原因。
+
+### Q: 前端部署后所有接口都 404 / 页面能开但没数据？
+
+A: 多半是**构建时 `.env` 还不存在**，`VITE_API_URL` 被编译成了 `undefined`。
+
+`src/utils/request.ts` 里是 `String(import.meta.env["VITE_API_URL"])`，构建时若读不到
+这个变量，产物里就是 `String({}.VITE_API_URL)` → 运行时 baseURL 变成字符串
+`"undefined"`，所有请求发到 `https://<域名>/undefined/song/detail`。
+页面能正常渲染，只是数据全空，从界面上完全看不出是构建顺序问题。
+
+顺序必须是 **`prepare-pages.mjs`（写 .env）→ 构建 → `finalize-dist.mjs`（校验）**。
+`scripts/finalize-dist.mjs` 现在会扫产物 JS，一旦发现 `{}.VITE_*` 或找不到目标
+API 地址就直接失败，不再让这种产物上线。
+
+### Q: `/song/url/v1/302` 通过 Pages 访问变成 404？
+
+A: Pages Functions 转发时 `fetch` 默认跟随重定向。这个接口是「回 302 让客户端自己去
+音频 CDN」，跟随之后会把 CDN 的 404 当成接口响应返回。转发函数里必须显式
+`redirect: 'manual'`（见 `frontend-config/functions/api/netease/[[path]].js`）。
+
 ### Q: API Worker 部署后报错怎么办？
 
 A: 先看错误类型：

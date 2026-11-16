@@ -21,6 +21,8 @@
 
 import CryptoJS from 'crypto-js'
 import { eapi, eapiResDecrypt, weapi, linuxapi } from './ncm-crypto.js'
+import { httpFetch } from './transport.js'
+import { generateRandomChineseIP } from './shims/util.js'
 
 // 内联配置
 const APP_CONF = {
@@ -173,6 +175,27 @@ function chooseUserAgent(crypto, uaType = 'pc') {
   return (userAgentMap[crypto] && userAgentMap[crypto][uaType]) || ''
 }
 
+/**
+ * 按 Cookie 里的 os 选 UA —— UA 与 os/osver/appver 必须自洽。
+ *
+ * 踩过的坑：这里原来无条件用 iPhone UA，而 processCookieObject 在调用方没传 os 时
+ * 默认 os=pc（osver/appver 也是 Windows 桌面端那一套）。于是上游看到
+ * 「os=pc + iOS UA」这种自相矛盾的组合，对 /song/enhance/player/url/v1
+ * 直接回 code -460「检测到您的网络环境存在风险」，表现就是前端能搜到歌但放不出声。
+ * 旧接口 /song/enhance/player/url 对这对矛盾宽容一些，所以只有 v1 挂，更难定位。
+ */
+function chooseUserAgentByOs(cookie, crypto = 'api') {
+  const os = String(cookie.os || 'pc').toLowerCase()
+  if (os === 'osx' || os === 'mac') {
+    return 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+  }
+  if (os === 'android') return chooseUserAgent(crypto, 'android')
+  if (os === 'iphone os' || os === 'iphone' || os === 'ios')
+    return chooseUserAgent(crypto, 'iphone')
+  if (os === 'linux') return chooseUserAgent('linuxapi', 'linux') || chooseUserAgent(crypto, 'pc')
+  return chooseUserAgent(crypto, 'pc')
+}
+
 export function processCookieObject(cookie, crypto) {
   const _ntes_nuid = CryptoJS.lib.WordArray.random(32).toString()
   const os = osMap[cookie.os] || osMap.pc
@@ -199,11 +222,147 @@ export function processCookieObject(cookie, crypto) {
   return processed
 }
 
+/**
+ * 决定本次请求发给网易云的 X-Real-IP
+ *
+ * 对应上游 server.js 里的 `options.randomCNIP ? global.cnIp : req.ip` 分支，
+ * 但这里要额外处理 Cloudflare 的现实：
+ *
+ * - 网易云只认 `X-Real-IP`（实测 `X-Forwarded-For` / `True-Client-IP` /
+ *   `CF-Connecting-IP` 一律无效），且必须是**中国大陆**地址，否则
+ *   `song/enhance/player/url` 系列返回 code 404，歌放不出来。
+ * - Workers 的 `fetch()` 会把这个头摘掉（官方文档明确写了），所以真正送达
+ *   依赖 transport.js 的 socket 传输。
+ * - 访客 IP 就是 Cloudflare 边缘看到的客户端 IP。中国大陆访客直接可用；
+ *   海外访客/本机调试则需要换成中国 IP，否则一定 404。
+ *
+ * 优先级：
+ *   1. 显式 `?realIP=` —— 保留上游的调试口子
+ *   2. `?randomCNIP=true` 或 `ENABLE_RANDOM_CN_IP=true` —— 随机中国 IP
+ *   3. 调用方 IP 缺失 / 回环 / 内网 —— 随机中国 IP（等价上游的 `::1` 分支）
+ *   4. 其余情况用调用方 IP（尊重访客真实地区，个性化推荐才准）
+ */
+export function resolveRealIP(options = {}) {
+  if (options.realIP) return String(options.realIP)
+
+  const env = (typeof process !== 'undefined' && process.env) || {}
+  const explicitRandom = options.randomCNIP
+  const envRandom = env.ENABLE_RANDOM_CN_IP === 'true'
+
+  const wantRandom =
+    explicitRandom === true || String(explicitRandom) === 'true'
+      ? true
+      : explicitRandom === false || String(explicitRandom) === 'false'
+        ? false
+        : envRandom
+
+  if (wantRandom) return generateRandomChineseIP()
+
+  const ip = String(options.ip || '').trim()
+  if (!ip) return generateRandomChineseIP()
+
+  // 回环 / 内网 / IPv6 链路本地：拿不到有效出口 IP，退回中国 IP
+  const isLoopback =
+    ip === '::1' ||
+    ip === '127.0.0.1' ||
+    ip.startsWith('127.') ||
+    ip === '::ffff:127.0.0.1' ||
+    ip === 'localhost'
+  const isPrivate =
+    /^10\./.test(ip) ||
+    /^192\.168\./.test(ip) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+    /^169\.254\./.test(ip) ||
+    /^f[cd][0-9a-f]{2}:/i.test(ip) ||
+    /^fe80:/i.test(ip)
+
+  if (isLoopback || isPrivate) return generateRandomChineseIP()
+  return ip
+}
+
 // ============================================================
 // 核心请求函数
 // ============================================================
 
 export async function createRequest(uri, data, options = {}) {
+  // 播放类接口直接带中国 IP 出门。
+  // 先拿访客真实 IP 试一次再补救的写法更「正确」，但实测代价是每次播放都要
+  // 多跑 1~2 个上游往返（海外访客 100% 需要补救），单曲加载从 0.7s 涨到 2s+。
+  // 播放链路不需要按地区做个性化，所以这里提前把 IP 定成中国 IP，一次到位；
+  // 下面仍保留补救循环，用于兜住「抽到的 IP 段被判风险」的偶发情况。
+  const playback = PLAYBACK_URI_PATTERN.test(String(uri))
+  const effectiveOptions =
+    playback && !options.realIP ? { ...options, realIP: generateRandomChineseIP() } : options
+
+  const first = await requestOnce(uri, data, effectiveOptions)
+
+  // 「播放链路自动补救」
+  // 网易云按出口 IP 判定地区：非中国大陆 IP 一律不给直链（song/url 系列
+  // 回 code 404 / -460，data[0].url 为 null），表现为能搜到歌但放不出声。
+  if (!shouldRetryWithCnIP(uri, first, options)) return first
+
+  for (let attempt = 0; attempt < CN_IP_RETRY_TIMES; attempt++) {
+    const retryData = cloneData(data)
+    const retryOptions = {
+      ...options,
+      realIP: generateRandomChineseIP(),
+      // 让 resolveRealIP 直接采用我们给的值
+      randomCNIP: false,
+    }
+    try {
+      const retried = await requestOnce(uri, retryData, retryOptions)
+      if (!isPlaybackWithoutUrl(retried)) return retried
+    } catch (err) {
+      // 本次重试报错：继续下一次，实在不行就保留第一次的结果
+    }
+  }
+  return first
+}
+
+/** 播放链路被地区门禁拦下时，最多换几个中国 IP 再试 */
+const CN_IP_RETRY_TIMES = 2
+
+/** 播放类接口：返回体里应该带直链，没有就是被地区门禁拦了 */
+const PLAYBACK_URI_PATTERN =
+  /^\/api\/song\/enhance\/(player|download)\/url(\/v1)?$|^\/api\/song\/url(\/v1)?$/
+
+export function isPlaybackWithoutUrl(answer) {
+  const body = answer && answer.body
+  if (!body || typeof body !== 'object') return false
+  const d = Array.isArray(body.data) ? body.data[0] : body.data
+  if (!d || typeof d !== 'object') return false
+  return !d.url
+}
+
+function shouldRetryWithCnIP(uri, answer, options) {
+  if (!PLAYBACK_URI_PATTERN.test(String(uri))) return false
+  // 调用方显式点名了 IP：尊重它，不擅自换
+  if (options.realIP) return false
+  // 已经用随机中国 IP 发过一次了
+  if (options.randomCNIP === true || String(options.randomCNIP) === 'true') return false
+  if (!isPlaybackWithoutUrl(answer)) return false
+  const code = answer?.body?.code
+  const songCode = (Array.isArray(answer?.body?.data) ? answer.body.data[0] : answer?.body?.data)
+    ?.code
+  // 只对「地区门禁」类结果重试：404 无直链、-460 风控
+  return code === 404 || code === -460 || songCode === 404 || songCode === -460
+}
+
+/** 复制请求数据：requestOnce 会往里写 header / e_r，重试不能复用被改过的对象 */
+function cloneData(data) {
+  if (!data || typeof data !== 'object') return data
+  try {
+    return structuredClone(data)
+  } catch (e) {
+    try {
+      return JSON.parse(JSON.stringify(data))
+    } catch (e2) {
+      return { ...data }
+    }
+  }
+}
+
+async function requestOnce(uri, data, options = {}) {
   const answer = { status: 500, body: {}, cookie: [] }
   // 在 try 外声明，catch 中才能引用到（便于错误定位）
   let url = ''
@@ -211,7 +370,7 @@ export async function createRequest(uri, data, options = {}) {
 
   try {
     const headers = options.headers ? { ...options.headers } : {}
-    const ip = options.realIP || options.ip || ''
+    const ip = resolveRealIP(options)
 
     // IP 头
     if (ip) {
@@ -263,11 +422,7 @@ export async function createRequest(uri, data, options = {}) {
         if (crypto === 'eapi' && cookie.NMTID) header['NMTID'] = cookie.NMTID
 
         headers['Cookie'] = createHeaderCookie(header)
-        headers['User-Agent'] =
-          options.ua ||
-          (cookie.os === 'osx'
-            ? 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-            : chooseUserAgent('api', 'iphone'))
+        headers['User-Agent'] = options.ua || chooseUserAgentByOs(cookie, 'api')
 
         if (crypto === 'eapi') {
           data.header = header
@@ -334,18 +489,24 @@ export async function createRequest(uri, data, options = {}) {
     const use_xeapi = crypto === 'xeapi'
     const use_neapi = crypto === 'neapi'
 
-    // 发送请求（使用 fetch 替代 axios）
+    // 发送请求
+    // 播放链路走 transport.js 的 socket 传输：Workers 的 fetch 子请求会把
+    // X-Real-IP 摘掉，而网易云就靠这个头判断出口地区（详见 transport.js）。
+    // 其余接口继续用普通 fetch —— 它们不需要这个头，也没必要自维护协议栈。
     const fetchOptions = {
       method: 'POST',
       headers: headers,
       body: bodyData,
-      // Workers fetch 自动管理连接池，不需要 agent
     }
+    if (PLAYBACK_URI_PATTERN.test(String(uri))) fetchOptions._socket = true
 
     // 超时处理（Workers 有自己的超时机制）
     // if (options.timeout > 0) { ... }
 
-    const response = await fetch(url, fetchOptions)
+    // 发送请求
+    // 走 transport.js 而不是直接 fetch：Workers 的 fetch 子请求会把 X-Real-IP 摘掉，
+    // 而网易云的播放链路就靠这个头判断出口地区（详见 transport.js 顶部说明）。
+    const response = await httpFetch(url, fetchOptions)
 
     // 获取 Set-Cookie
     // Workers 的 Headers.get('set-cookie') 会把多个 Set-Cookie 用逗号拼成一串，

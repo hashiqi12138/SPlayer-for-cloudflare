@@ -15,9 +15,15 @@ import { applyAllPolyfills } from './polyfills.js'
 import { registerModules } from './module-router.js'
 import { registerGeneratedRoutes } from './generated-routes.js'
 import { registerUnblockRoutes } from './unblock/index.js'
+import { useSocketTransport } from './transport.js'
 
 // 应用 Workers 环境 polyfills
 applyAllPolyfills()
+
+// 出站改走 cloudflare:sockets 手写 HTTP/1.1。
+// 原因：Workers 的 fetch() 子请求会被摘掉 X-Real-IP，而网易云靠这个头判断出口地区，
+// 被摘掉后 /song/url 系列恒返回 code 404（歌放不出来）。详见 transport.js。
+useSocketTransport()
 
 // ============================================================
 // Node.js 模块导入

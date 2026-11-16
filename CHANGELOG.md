@@ -5,6 +5,47 @@
 
 发布流程见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
+## [1.0.6] - 2026-11-16
+
+### 修复
+
+- **播放链路在线上恒失败（能搜到歌、点播放没声音）**。网易云对
+  `song/enhance/player|download/url` 系列按出口 IP 判地区，没有中国大陆 `X-Real-IP`
+  就回 `code 404`（`data[0].url` 为 null）；而 Cloudflare Workers 的 `fetch()` 出站
+  子请求会把这个头摘掉（[官方文档][cf-xrip]），且网易云只认它一个
+  （`X-Forwarded-For` / `True-Client-IP` / `CF-Connecting-IP` 实测均无效）。
+  本地 `wrangler dev` 没有这层清洗，所以「本地能放、线上不能放」，从代码上看不出来。
+  - 新增 `workers/api/src/transport.js`：用 `cloudflare:sockets` 手写 HTTP/1.1 报文、
+    TLS 直连，绕开 fetch 的头部清洗。只在播放链路启用，其余接口继续用 fetch；
+    本地 workerd 对 sockets 支持不完整，失败自动回落 fetch。
+  - `ncm-request-handler.js` 新增 `resolveRealIP()`：播放类接口直接带中国 IP 出门
+    （省掉「先用访客 IP 试一次再补救」的两个上游往返，单曲加载从 2s+ 回到 1.3s），
+    非播放接口仍用访客真实 IP，个性化推荐才准。`?realIP=` / `?randomCNIP=true` 仍有效。
+  - `shims/util.js` 的 `generateRandomChineseIP()` 改用实测可用 IP 段白名单：
+    原来随机 `116.25~94.x.x`，其中 116.90 以上会被判成海外，实测 8/8 全 404。
+  - 兜底：播放响应里没有 `url` 时，换中国 IP 再试两次（应对个别 IP 段被判风险）。
+- **前端所有接口请求发到 `https://<域名>/undefined/...`**。`request.ts` 里是
+  `String(import.meta.env["VITE_API_URL"])`，构建时若 `.env` 还没生成，产物里就是
+  `String({}.VITE_API_URL)` → baseURL 变成字符串 `"undefined"`。页面能开、能渲染，
+  只是数据全空，从界面完全看不出是构建顺序问题。
+  `finalize-dist.mjs` 现在扫产物 JS，发现 `{}.VITE_*` 或找不到目标 API 地址就直接失败。
+- **`/song/url/v1/302` 经 Pages 转发变成 404**。转发时 `fetch` 默认跟随重定向，
+  会一路跟到音乐 CDN，把 CDN 的 404 当成接口响应返回。转发函数改为
+  `redirect: 'manual'`，302 + Location 原样透传。
+- Pages 健康检查补上 `code: 200`，与 Worker 首页保持同一份契约。
+
+### 变更
+
+- `workers/api` 依赖升级：`express` 5.3.0、`axios` 1.21.1、`node-forge` 1.4.3、
+  `dotenv` 18.0.10、`unblockmusic-utils` 0.4.6、`wrangler` 4.163.0；
+  根目录 `wrangler` 4.163.0、`prettier` 3.10.1。
+- 上游 `ncm-source` 由 `135df9e` 升到 `75bf2e5`（api-enhanced 4.41.1，459 个模块，
+  新增 v9.6.13 客户端接口、播客分类、日推风格等）。补丁在新版本上仍可干净应用。
+- 接口测试脚本：所有用例失败后统一重试一次（上游偶发 5xx 不代表实现有问题）；
+  下载直链与 AIDJ 按「需登录 / 上游恒定不可用」归类为跳过与受限，不再计失败。
+
+[cf-xrip]: https://developers.cloudflare.com/rules/transform/request-header-modification/
+
 ## [1.0.5] - 2026-10-01
 
 ### 修复

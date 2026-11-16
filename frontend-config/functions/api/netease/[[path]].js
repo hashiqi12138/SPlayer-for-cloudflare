@@ -31,9 +31,12 @@ export async function onRequest(context) {
   const path = Array.isArray(params.path) ? params.path.join('/') : params.path
 
   // 健康检查
+  // 带上 code:200 与 Worker 首页保持同一份契约：接口测试脚本统一按顶层 code 判定，
+  // 少了它「首页」这条用例在走 Pages 转发时会被判成失败（其实是响应形状不一致）。
   if (!path || path === '') {
     return new Response(
       JSON.stringify({
+        code: 200,
         status: 'ok',
         service: 'pages-api-proxy',
         target: API_WORKER_URL,
@@ -61,10 +64,17 @@ export async function onRequest(context) {
 
   try {
     // 转发请求（Service Binding：不经过公网，不额外计入请求配额）
+    //
+    // redirect: 'manual' 是必须的：Worker 里有 `/song/url/v1/302` 这类
+    // 「回 302 让客户端自己去音频 CDN」的接口。Service Binding 的 fetch 默认
+    // follow，会把 302 一路跟到音乐 CDN，把音频二进制当成接口响应回给前端 ——
+    // 前端拿到的是 mp3 而不是 JSON，播放直接失败。这里显式关掉跟随，
+    // 把 302 + Location 原样透传。
     const response = await env.API_WORKER.fetch(targetUrl, {
       method: request.method,
       headers: newHeaders,
       body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,
+      redirect: 'manual',
     })
 
     // 复制响应头，添加 CORS

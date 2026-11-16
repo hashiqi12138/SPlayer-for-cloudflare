@@ -7,7 +7,7 @@
  * 否则每次依赖更新都会产生只有时间戳变化的噪音 diff。
  * 需要知道生成时间时看 git 历史即可。
  *
- * 已转译: 429 个模块
+ * 已转译: 447 个模块
  * 已跳过: 12 个（依赖特殊，走 module-router.js 手动实现）
  */
 
@@ -737,6 +737,14 @@ return async (query, request) => {
   )
 },
 
+  // /banner/v3  <-- banner_v3.js
+  '/banner/v3': (query, request) => {
+  const data = {
+    clientType: query.clientType || 'android',
+  }
+  return request(`/api/banner/get/v3`, data, createOption(query, 'weapi'))
+},
+
   // /batch  <-- batch.js
   '/batch': (query, request) => {
   const data = {}
@@ -1248,6 +1256,18 @@ return (query, request) => {
   )
 },
 
+  // /comment/default/text  <-- comment_default_text.js
+  '/comment/default/text': (query, request) => {
+  const data = {
+    threadId: query.threadId,
+  }
+  return request(
+    `/api/comment/default/text`,
+    data,
+    createOption(query, 'weapi'),
+  )
+},
+
   // /comment/delete  <-- comment_delete.js
   '/comment/delete': (() => {
 const { resourceTypeMap } = __config__
@@ -1330,6 +1350,16 @@ return (query, request) => {
   )
 };
 })(),
+
+  // /comment/hotwall/square/info  <-- comment_hotwall_square_info.js
+  '/comment/hotwall/square/info': (query, request) => {
+  const data = {}
+  return request(
+    `/api/comment/hotwall/today/squareinfo/get`,
+    data,
+    createOption(query, 'weapi'),
+  )
+},
 
   // /comment/hug/list  <-- comment_hug_list.js
   '/comment/hug/list': (() => {
@@ -1742,6 +1772,12 @@ return async (query, request) => {
   )
 },
 
+  // /dislike/list  <-- dislike_list.js
+  '/dislike/list': (query, request) => {
+  const data = {}
+  return request(`/api/music/dislike/get`, data, createOption(query, 'xeapi'))
+},
+
   // /djRadio/top  <-- djRadio_top.js
   '/djRadio/top': (query, request) => {
   const data = {
@@ -1768,6 +1804,15 @@ return async (query, request) => {
     `/api/djradio/category/excludehot`,
     {},
     createOption(query, 'weapi'),
+  )
+},
+
+  // /dj/category/list  <-- dj_category_list.js
+  '/dj/category/list': (query, request) => {
+  return request(
+    `/api/dj/radio/category/list`,
+    {},
+    createOption(query, 'xeapi'),
   )
 },
 
@@ -2112,6 +2157,69 @@ return async (query, request) => {
   }
 
   return request(`/api/event/privacy/op`, data, createOption(query))
+},
+
+  // /event/search  <-- event_search.js
+  '/event/search': (query, request) => {
+  const data = {
+    keyword: query.keyword || query.keywords || '',
+    limit: query.limit || 30,
+    offset: query.offset || 0,
+  }
+  return request(
+    `/api/event/search/list/get/v1`,
+    data,
+    createOption(query, 'weapi'),
+  )
+},
+
+  // /fans/group/detail  <-- fans_group_detail.js
+  '/fans/group/detail': (query, request) => {
+  const data = {
+    groupId: query.groupId || query.id || '',
+    scene: query.scene || '',
+  }
+  return request(
+    '/api/social/fansgroup/bff/detail/get',
+    data,
+    createOption(query, 'eapi'),
+  )
+},
+
+  // /fans/group/feed/recommend  <-- fans_group_feed_recommend.js
+  '/fans/group/feed/recommend': (query, request) => {
+  const data = {
+    artistSelf: query.artistSelf || '0',
+    fansGroupId: query.fansGroupId || query.groupId || '',
+    cursor: query.cursor || '0',
+    size: String(query.size || 10),
+  }
+  return request(
+    '/api/fans/group/feed/recommend/get',
+    data,
+    createOption(query, 'eapi'),
+  )
+},
+
+  // /fans/group/user/group/detail  <-- fans_group_user_group_detail.js
+  '/fans/group/user/group/detail': (query, request) => {
+  const data = {
+    groupId: query.groupId || query.id || '',
+  }
+  return request(
+    '/api/social/fansgroup/bff/user/group/detail/get',
+    data,
+    createOption(query, 'eapi'),
+  )
+},
+
+  // /fans/group/user/groups  <-- fans_group_user_groups.js
+  '/fans/group/user/groups': (query, request) => {
+  return request(
+    '/api/social/fansgroup/bff/user/groups/get',
+    {},
+    createOption(query, 'eapi'),
+  )
 },
 
   // /fanscenter/basicinfo/age/get  <-- fanscenter_basicinfo_age_get.js
@@ -2725,6 +2833,20 @@ return async (query, request) => {
     extInfo: JSON.stringify({ songId: query.songid }),
   }
   return request(`/api/mlog/rcmd/feed/list`, data, createOption(query))
+},
+
+  // /mlog/mycollect  <-- mlog_mycollect.js
+  '/mlog/mycollect': (query, request) => {
+  const data = {
+    time: query.time || '-1',
+    limit: query.limit || 30,
+    mlogType: query.type || 3,
+  }
+  return request(
+    `/api/mlog/mycollect/bytime/get`,
+    data,
+    createOption(query, 'xeapi'),
+  )
 },
 
   // /mlog/to/video  <-- mlog_to_video.js
@@ -3535,6 +3657,42 @@ return async (query, request) => {
   return request(`/api/pc/recent/listen/list`, data, createOption(query))
 },
 
+  // /recommend/category/configs  <-- recommend_category_configs.js
+  '/recommend/category/configs': (query, request) => {
+  const data = {}
+  return request(
+    `/api/homepage/daily/song/config/get`,
+    data,
+    createOption(query, 'xeapi'),
+  )
+},
+
+  // /recommend/category/set  <-- recommend_category_set.js
+  '/recommend/category/set': (query, request) => {
+  const data = {
+    tags: JSON.stringify({
+      tagIds: String(query.tags).split(',').map(Number),
+      categoryId: Number(query.category),
+    }),
+  }
+  console.log(data)
+  return request(
+    `/api/homepage/daily/song/tag/save`,
+    data,
+    createOption(query, 'xeapi'),
+  )
+},
+
+  // /recommend/category/songs  <-- recommend_category_songs.js
+  '/recommend/category/songs': (query, request) => {
+  const data = {}
+  return request(
+    `/api/homepage/category/daily/song/list`,
+    data,
+    createOption(query, 'xeapi'),
+  )
+},
+
   // /recommend/resource  <-- recommend_resource.js
   '/recommend/resource': (query, request) => {
   return request(
@@ -3567,6 +3725,18 @@ return async (query, request) => {
     `/api/v2/discovery/recommend/dislike`,
     data,
     createOption(query, 'weapi'),
+  )
+},
+
+  // /recommend/songs/v1  <-- recommend_songs_v1.js
+  '/recommend/songs/v1': (query, request) => {
+  const data = {
+    ispush: query.ispush || false,
+  }
+  return request(
+    `/api/v3/discovery/recommend/songs`,
+    data,
+    createOption(query, 'xeapi'),
   )
 },
 
@@ -3712,7 +3882,7 @@ return async (query, request) => {
 
   const res = await axios({
     method: 'POST',
-    url: APP_CONF.apiDomain + '/api/gorilla/anti/crawler/security/key/get',
+    url: APP_CONF.apiDomain + '/api/bsr/sk/get',
     headers: {
       'User-Agent':
         'NeteaseMusic/9.5.61.260802021928(9005061);Dalvik/2.1.0 (Linux; U; Android 12; HBN-AL00 Build/cd737a2.0)',
@@ -4056,17 +4226,25 @@ return (query, request) => {
 
   // /scrobble  <-- scrobble.js
   '/scrobble': (() => {
+const { getCookieHeader, hasCookie } = __util__
 const { APP_CONF } = __config__
 return async (query, request) => {
   // 注入 os=osx 的 cookie
-  let cookie = query.cookie || ''
+  const headerCookie = getCookieHeader(query.headers)
+  let cookie = hasCookie(query.cookie)
+    ? query.cookie
+    : hasCookie(headerCookie)
+      ? headerCookie
+      : process.env.NETEASE_COOKIE || ''
   if (typeof cookie === 'object') {
     cookie = Object.assign({ os: 'osx' }, cookie)
   } else if (typeof cookie === 'string') {
     if (cookie.indexOf('os=') > -1) {
       cookie = cookie.replace(/os=[^;]+/g, 'os=osx')
-    } else {
+    } else if (cookie) {
       cookie = cookie + '; os=osx'
+    } else {
+      cookie = 'os=osx'
     }
   } else {
     cookie = 'os=osx'
@@ -4171,6 +4349,20 @@ return async (query, request) => {
   return request(`/api/hotsearchlist/get`, data, createOption(query, 'weapi'))
 },
 
+  // /search/lyric  <-- search_lyric.js
+  '/search/lyric': (query, request) => {
+  const data = {
+    keyword: query.keyword || query.keywords || '',
+    limit: query.limit || 30,
+    offset: query.offset || 0,
+  }
+  return request(
+    `/api/search/resource/lyric`,
+    data,
+    createOption(query, 'weapi'),
+  )
+},
+
   // /search/match  <-- search_match.js
   '/search/match': (query, request) => {
   let songs = [
@@ -4201,6 +4393,21 @@ return async (query, request) => {
   )
 },
 
+  // /search/song/list/page  <-- search_song_list_page.js
+  '/search/song/list/page': (query, request) => {
+  const data = {
+    keyword: query.keyword || query.keywords || '',
+    limit: query.limit || 30,
+    offset: query.offset || 0,
+    scene: query.scene || 'normal',
+  }
+  return request(
+    `/api/search/song/list/page`,
+    data,
+    createOption(query, 'weapi'),
+  )
+},
+
   // /search/suggest  <-- search_suggest.js
   '/search/suggest': (query, request) => {
   const data = {
@@ -4209,6 +4416,18 @@ return async (query, request) => {
   let type = query.type == 'mobile' ? 'keyword' : 'web'
   return request(
     `/api/search/suggest/` + type,
+    data,
+    createOption(query, 'weapi'),
+  )
+},
+
+  // /search/suggest/mobile  <-- search_suggest_mobile.js
+  '/search/suggest/mobile': (query, request) => {
+  const data = {
+    keyword: query.keyword || query.keywords || '',
+  }
+  return request(
+    `/api/search/suggest/keyword/get`,
     data,
     createOption(query, 'weapi'),
   )
@@ -6201,7 +6420,7 @@ function handleModule(moduleFn) {
 }
 
 export const routeStats = {
-  total: 429,
+  total: 447,
   skipped: 12,
   skippedModules: [{"route":"/avatar/upload","reason":"unsupported require: ../plugins/upload"},{"route":"/cloud","reason":"unsupported require: ../plugins/songUpload, ../util/fileHelper, music-metadata"},{"route":"/login/qr/create","reason":"unsupported require: qrcode"},{"route":"/playlist/cover/update","reason":"unsupported require: ../plugins/upload"},{"route":"/register/anonimous","reason":"unsupported require: path, fs"},{"route":"/register/checktoken/v2","reason":"unsupported require: jsdom"},{"route":"/register/neapikey","reason":"unsupported require: ../util/neapiKey, ../util/neapiConfig"},{"route":"/scrobble/v1","reason":"unsupported require: ../util/ncbl"},{"route":"/song/url/match","reason":"unsupported require: @neteasecloudmusicapienhanced/unblockmusic-utils"},{"route":"/song/url/v1","reason":"unsupported require: @neteasecloudmusicapienhanced/unblockmusic-utils, dotenv"},{"route":"/verify/getQr","reason":"unsupported require: qrcode"},{"route":"/voice/upload","reason":"unsupported require: fs, xml2js, ../plugins/upload, ../util/fileHelper"}],
 };

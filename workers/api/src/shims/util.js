@@ -43,8 +43,32 @@ function getRandom(num) {
   return floor((randomValue + floorValue) * powValue)
 }
 
+/**
+ * 中国大陆 IP 池（用于 X-Real-IP）
+ *
+ * 上游从 `data/china_ip_ranges` 里按权重随机挑一个段，Workers 读不了那个文件，
+ * 这里改成一份**实测可用**的前缀白名单。
+ *
+ * 为什么不能简单随机 `116.x.x.x`：原实现是 `116.25~94.x.x`，实测 116.90 以上
+ * 的段会被网易云判成海外（`song/url` 回 code 404），116.40 / 116.70 也时好时坏。
+ * 所以只放逐一验证过、连打 4 次全通的段 —— 池子小一点无所谓，随机踩雷才是灾难。
+ * 验证方式：`/song/url/v1?id=347230&level=exhigh&realIP=<IP>` 是否返回直链。
+ */
+const CN_IP_PREFIXES = [
+  [116, 25],
+  [116, 55],
+  [116, 85],
+  [117, 136],
+  [120, 230],
+  [183, 14],
+  [39, 144],
+  [223, 104],
+  [111, 202],
+]
+
 function generateRandomChineseIP() {
-  return `116.${getRandomInt(25, 94)}.${getRandomInt(1, 255)}.${getRandomInt(1, 255)}`
+  const [a, b] = CN_IP_PREFIXES[floor(random() * CN_IP_PREFIXES.length)]
+  return `${a}.${b}.${getRandomInt(1, 255)}.${getRandomInt(1, 255)}`
 }
 
 function getCookieValue(cookieStr, name) {
