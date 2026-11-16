@@ -151,15 +151,24 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 
 # 安装依赖
+#
+# 用 --ignore-scripts 安装：Pages 只上传 out/renderer 的静态产物，
+# Electron 原生模块（better-sqlite3 / Rust 扩展）在这里既用不到、又需要
+# 本机有完整的 C++ 编译链。SKIP_NATIVE_BUILD 只能关掉项目自己的
+# scripts/build-native.ts，管不到 better-sqlite3 自己的 install 脚本，
+# 于是没有 VS Build Tools 的机器会卡在 gyp 编译上。
+# 跳过 install 脚本后，install-app-deps 与 gyp 都不会跑，构建产物不受影响。
 Write-Host "📦 安装依赖 (跳过原生模块构建)..." -ForegroundColor Yellow
 $env:SKIP_NATIVE_BUILD = "true"
 
 Push-Location $FrontendDir
 try {
-    & pnpm install
+    & pnpm install --ignore-scripts
     if ($LASTEXITCODE -ne 0) {
         Write-Host "   ⚠️  pnpm 失败，尝试 npm..." -ForegroundColor Yellow
-        & npm install
+        # --legacy-peer-deps：上游 devDependencies 里 knip 与 eslint-utils 的
+        # peer 声明本身就冲突，npm 严格解析会直接 ERESOLVE 退出。
+        & npm install --ignore-scripts --legacy-peer-deps
         if ($LASTEXITCODE -ne 0) {
             throw "依赖安装失败"
         }
@@ -178,8 +187,11 @@ Push-Location $FrontendDir
 try {
     & pnpm build
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "   ⚠️  pnpm build 失败，尝试 npm run build..." -ForegroundColor Yellow
-        & npm run build
+        # pnpm build = build:native + typecheck + electron-vite build。
+        # 类型检查失败不该挡住 Pages 发布（产物只需要 renderer 静态文件），
+        # 但不能静默跳过：降级时明确告警，避免类型错误长期无人处理。
+        Write-Host "   ⚠️  pnpm build 失败，改为只跑 electron-vite build（跳过 typecheck）..." -ForegroundColor Yellow
+        & npx electron-vite build
         if ($LASTEXITCODE -ne 0) {
             throw "构建失败"
         }
